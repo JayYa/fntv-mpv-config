@@ -62,6 +62,19 @@
             "enabled": true,
             "local_path": "./local_packages/smart_skip",
             "version": "local"
+        },
+        "thumbfast": {
+            "name": "thumbfast缩略图插件",
+            "enabled": true,
+            "local_path": "./local_packages/thumbfast",
+            "version": "local",
+            "custom_install_rules": [
+                {
+                    "from": "",
+                    "to": "portable_config/scripts",
+                    "filter": ["thumbfast.lua"]
+                }
+            ]
         }
     }
 
