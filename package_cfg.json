@@ -14,7 +14,7 @@
             "name": "mpv播放器",
             "enabled": true,
             "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-            "version": "20260814",
+            "version": "20261108",
             "filename_pattern": "mpv-x86_64-{version}",
             "format": "7z",
             "exclude_files": [
@@ -25,7 +25,7 @@
             "name": "uosc插件",
             "enabled": true,
             "url": "https://github.com/tomasklaen/uosc/releases",
-            "version": "5.12.0",
+            "version": "5.13.0",
             "filename_pattern": "uosc",
             "format": "zip",
             "exclude_files": [

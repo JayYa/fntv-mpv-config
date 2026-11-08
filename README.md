@@ -75,11 +75,11 @@ pip install -r requirements.txt
 {
   "dependencies": {
     "mpv": {
-      "version": "20260814",
+      "version": "20261108",
       "enabled": true
     },
     "uosc": {
-      "version": "5.11.0",
+      "version": "5.13.0",
       "enabled": true
     },
     "uosc_danmaku": {
@@ -222,7 +222,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
     "mpv": {
       "name": "mpv播放器",
       "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-      "version": "20260814",
+      "version": "20261108",
       "filename_pattern": "mpv-x86_64-{version}",
       "format": "7z",
       "enabled": true,
@@ -237,7 +237,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
     "uosc": {
       "name": "uosc插件",
       "url": "https://github.com/tomasklaen/uosc/releases", 
-      "version": "5.11.0",
+      "version": "5.13.0",
       "filename_pattern": "uosc",
       "format": "zip",
       "enabled": true,
@@ -354,7 +354,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
   "uosc": {
     "name": "uosc插件", 
     "url": "https://github.com/tomasklaen/uosc/releases",
-    "version": "5.11.0",
+    "version": "5.13.0",
     "exclude_files": [
       "*.md",
       "LICENSE*"
@@ -384,7 +384,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
   "mpv": {
     "name": "mpv播放器",
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-    "version": "20260814",
+    "version": "20261108",
     "exclude_files": [
       "doc/*",             // 排除文档目录
       "installer/*",       // 排除安装程序

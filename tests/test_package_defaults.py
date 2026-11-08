@@ -15,10 +15,20 @@ class TestPackageDefaults(unittest.TestCase):
         config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
 
         dependency = config["dependencies"]["mpv"]
-        self.assertEqual(dependency["version"], "20260814")
+        self.assertEqual(dependency["version"], "20261108")
         self.assertEqual(
             dependency["url"],
             "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
+        )
+
+    def test_uosc_uses_latest_stable_release(self):
+        config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
+
+        dependency = config["dependencies"]["uosc"]
+        self.assertEqual(dependency["version"], "5.13.0")
+        self.assertEqual(
+            dependency["url"],
+            "https://github.com/tomasklaen/uosc/releases",
         )
 
     def test_uosc_danmaku_uses_latest_stable_release(self):
