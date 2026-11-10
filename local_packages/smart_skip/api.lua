@@ -51,7 +51,13 @@ function api.set_skip_time(play_url, start_time, end_time, callback)
         return false
     end
 
-    local url = "http://127.0.0.1:22345/api/v1/skipinfo?" .. query
+    local origin = mutils.extract_origin(play_url)
+    if not origin then
+        msg.error("无法解析播放地址的主机和端口:" .. tostring(play_url))
+        return false
+    end
+
+    local url = origin .. "/api/v1/skipinfo?" .. query
     local data = {
         guid = id,
         skipStart = start_time,
@@ -82,7 +88,13 @@ function api.get_skip_time(play_url, callback)
         return nil
     end
 
-    local url = "http://127.0.0.1:22345/api/v1/skipinfo/".. id .. "?" .. query
+    local origin = mutils.extract_origin(play_url)
+    if not origin then
+        msg.error("无法解析播放地址的主机和端口:" .. tostring(play_url))
+        return nil
+    end
+
+    local url = origin .. "/api/v1/skipinfo/".. id .. "?" .. query
 
     http_async.request({
         url = url,

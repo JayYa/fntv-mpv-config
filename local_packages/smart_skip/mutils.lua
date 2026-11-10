@@ -136,6 +136,11 @@ function mutils.extract_id_and_query(url)
     return id, query
 end
 
+-- 提取 path 的 origin（scheme://host:port），skipinfo 请求发往同一个 Proxy
+function mutils.extract_origin(url)
+    return url:match("^(https?://[^/%?#]+)")
+end
+
 -- 持久化配置
 function mutils.save_options()
     local dir = utils.split_path(conf_path)
