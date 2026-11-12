@@ -75,7 +75,7 @@ pip install -r requirements.txt
 {
   "dependencies": {
     "mpv": {
-      "version": "20261108",
+      "version": "v0.42.0",
       "enabled": true
     },
     "uosc": {
@@ -221,17 +221,13 @@ python run.py --clean all       # 清理所有临时文件和构建产物
   "dependencies": {
     "mpv": {
       "name": "mpv播放器",
-      "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-      "version": "20261108",
-      "filename_pattern": "mpv-x86_64-{version}",
-      "format": "7z",
+      "url": "https://github.com/mpv-player/mpv/releases",
+      "version": "v0.42.0",
+      "filename_pattern": "mpv-{version}-x86_64-pc-windows-msvc",
+      "format": "zip",
       "enabled": true,
       "exclude_files": [                // 排除不需要的文件
-        "doc/*",
-        "installer/*", 
-        "*.bat",
-        "*.md",
-        "LICENSE*"
+        "*.bat"
       ]
     },
     "uosc": {
@@ -383,14 +379,10 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 {
   "mpv": {
     "name": "mpv播放器",
-    "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-    "version": "20261108",
+    "url": "https://github.com/mpv-player/mpv/releases",
+    "version": "v0.42.0",
     "exclude_files": [
-      "doc/*",             // 排除文档目录
-      "installer/*",       // 排除安装程序
-      "*.bat",            // 排除批处理文件
-      "*.md",             // 排除文档
-      "LICENSE*"          // 排除许可证
+      "*.bat"             // 排除 mpv-register.bat、mpv-unregister.bat
     ]
   }
 }

@@ -15,10 +15,10 @@ class TestPackageDefaults(unittest.TestCase):
         config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
 
         dependency = config["dependencies"]["mpv"]
-        self.assertEqual(dependency["version"], "20261108")
+        self.assertEqual(dependency["version"], "v0.42.0")
         self.assertEqual(
             dependency["url"],
-            "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
+            "https://github.com/mpv-player/mpv/releases",
         )
 
     def test_uosc_uses_latest_stable_release(self):

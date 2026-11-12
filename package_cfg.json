@@ -13,12 +13,12 @@
         "mpv": {
             "name": "mpv播放器",
             "enabled": true,
-            "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-            "version": "20261108",
-            "filename_pattern": "mpv-x86_64-{version}",
-            "format": "7z",
+            "url": "https://github.com/mpv-player/mpv/releases",
+            "version": "v0.42.0",
+            "filename_pattern": "mpv-{version}-x86_64-pc-windows-msvc",
+            "format": "zip",
             "exclude_files": [
-                "doc/*"
+                "*.bat"
             ]
         },
         "uosc": {
