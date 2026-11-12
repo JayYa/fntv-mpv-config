@@ -21,6 +21,20 @@ class TestPackageDefaults(unittest.TestCase):
             "https://github.com/mpv-player/mpv/releases",
         )
 
+    def test_vc_runtime_ships_next_to_mpv(self):
+        """官方 MSVC 构建的 mpv.exe 动态链接这三个 DLL，Windows 不自带。"""
+        config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
+
+        dependency = config["dependencies"]["vc_runtime"]
+        self.assertTrue(dependency["enabled"])
+        self.assertEqual(
+            dependency["custom_install_rules"],
+            [{"from": "", "to": "", "filter": ["*.dll"]}],
+        )
+        runtime_dir = PROJECT_ROOT / dependency["local_path"]
+        for dll in ("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll"):
+            self.assertTrue((runtime_dir / dll).is_file(), dll)
+
     def test_uosc_uses_latest_stable_release(self):
         config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
 

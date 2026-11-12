@@ -21,6 +21,19 @@
                 "*.bat"
             ]
         },
+        "vc_runtime": {
+            "name": "VC++运行库（官方mpv构建依赖）",
+            "enabled": true,
+            "local_path": "./local_packages/vc_runtime",
+            "version": "14.52.37029.0",
+            "custom_install_rules": [
+                {
+                    "from": "",
+                    "to": "",
+                    "filter": ["*.dll"]
+                }
+            ]
+        },
         "uosc": {
             "name": "uosc插件",
             "enabled": true,
