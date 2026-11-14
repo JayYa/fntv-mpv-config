@@ -4,8 +4,11 @@
 """
 import json
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
+
+# 覆盖 package_cfg.json 中 config.output_dir 的环境变量
+OUTPUT_DIR_ENV = "FNTV_MPV_OUTPUT_DIR"
 
 
 class ConfigError(Exception):
@@ -16,14 +19,16 @@ class ConfigError(Exception):
 class ConfigManager:
     """配置管理器"""
     
-    def __init__(self, config_path: str = "package_cfg.json"):
+    def __init__(self, config_path: str = "package_cfg.json", output_dir: Optional[str] = None):
         """
         初始化配置管理器
-        
+
         Args:
             config_path: 配置文件路径
+            output_dir: 输出目录覆盖值（命令行 --output-dir），优先于环境变量和配置文件
         """
         self.config_path = Path(config_path)
+        self.output_dir_override = output_dir
         self._config = None
         
     def load_config(self) -> Dict[str, Any]:
@@ -66,7 +71,16 @@ class ConfigManager:
         return self._config
     
     def get_output_dir(self) -> Path:
-        """获取输出目录"""
+        """
+        获取输出目录
+
+        优先级：命令行 --output-dir > 环境变量 FNTV_MPV_OUTPUT_DIR > package_cfg.json 的 config.output_dir
+        """
+        if self.output_dir_override:
+            return Path(self.output_dir_override)
+        env_output_dir = os.environ.get(OUTPUT_DIR_ENV)
+        if env_output_dir:
+            return Path(env_output_dir)
         return Path(self.get_config()['config']['output_dir'])
     
     def get_temp_dir(self) -> Path:

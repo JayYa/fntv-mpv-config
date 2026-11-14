@@ -17,20 +17,22 @@ from .log_manager import LogManager
 class MPVConfigManager:
     """MPV配置管理器主类"""
     
-    def __init__(self, config_path: str = "package_cfg.json", log_level: str = "INFO"):
+    def __init__(self, config_path: str = "package_cfg.json", log_level: str = "INFO",
+                 output_dir: Optional[str] = None):
         """
         初始化MPV配置管理器
-        
+
         Args:
             config_path: 配置文件路径
             log_level: 日志级别
+            output_dir: 输出目录覆盖值，None 时依次取环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件
         """
         # 初始化日志
         self.log_manager = LogManager(log_level)
         self.logger = self.log_manager.get_logger(__name__)
-        
+
         # 初始化配置管理器
-        self.config_manager = ConfigManager(config_path)
+        self.config_manager = ConfigManager(config_path, output_dir)
         
         # 其他管理器将在需要时初始化
         self.download_manager = None
@@ -422,6 +424,11 @@ def create_cli_parser() -> argparse.ArgumentParser:
     )
     
     parser.add_argument(
+        '--output-dir',
+        help='输出目录，覆盖环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件中的 config.output_dir'
+    )
+
+    parser.add_argument(
         '--deps', '--dependencies',
         nargs='*',
         help='要处理的依赖项名称列表'
@@ -493,7 +500,7 @@ def main():
     
     try:
         # 创建管理器实例
-        manager = MPVConfigManager(args.config, args.log_level)
+        manager = MPVConfigManager(args.config, args.log_level, args.output_dir)
         
         # 执行相应的操作
         if args.list:

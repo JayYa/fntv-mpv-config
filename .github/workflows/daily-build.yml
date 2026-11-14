@@ -45,7 +45,8 @@ jobs:
       run: |
         # 读取package_cfg.json并解析配置
         $config = Get-Content -Path "package_cfg.json" -Raw | ConvertFrom-Json
-        $outputDir = $config.config.output_dir
+        # 与 src/config_manager.py 一致：环境变量 FNTV_MPV_OUTPUT_DIR 优先于配置文件
+        $outputDir = if ($env:FNTV_MPV_OUTPUT_DIR) { $env:FNTV_MPV_OUTPUT_DIR } else { $config.config.output_dir }
         $tempDir = $config.config.temp_dir
         
         Write-Host "配置的输出目录: $outputDir"

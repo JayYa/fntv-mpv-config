@@ -115,6 +115,9 @@ python run.py --skip-install
 # 使用本地包文件
 python run.py --deps local_plugin  # 配置文件中指定了local_path的依赖项
 
+# 输出到其它目录（不改 package_cfg.json；也可设环境变量 FNTV_MPV_OUTPUT_DIR）
+python run.py --output-dir ./output
+
 # 清理下载和构建目录
 python run.py --clean temp      # 清理临时下载文件
 python run.py --clean output    # 清理构建的安装包
@@ -268,6 +271,16 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 - `exclude_files`: 排除文件数组，在安装时排除不需要的文件和目录
 - `custom_install_rules`: 自定义配置安装规则数组（可选）
+
+#### 输出目录
+
+`config.output_dir` 是默认输出目录，可以按次覆盖，优先级从高到低：
+
+1. 命令行 `--output-dir <目录>`
+2. 环境变量 `FNTV_MPV_OUTPUT_DIR`（空值视为未设置）
+3. `package_cfg.json` 的 `config.output_dir`
+
+覆盖值只作用于本次运行，不会写回配置文件。`--clean output` 同样按这个顺序确定要清理的目录。
 
 #### exclude_files 排除模式
 
