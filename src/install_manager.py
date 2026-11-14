@@ -2,7 +2,9 @@
 安装管理模块
 负责将解压的文件按照规则安装到目标位置
 """
+import re
 import shutil
+from datetime import datetime
 import fnmatch
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -12,6 +14,21 @@ import logging
 class InstallError(Exception):
     """安装错误异常"""
     pass
+
+
+PACKAGE_TIMESTAMP_PATTERN = re.compile(r"\d{8}_\d{6}")
+
+
+def validate_package_timestamp(timestamp: str) -> str:
+    """
+    校验安装包时间戳格式（yyyyMMdd_HHmmss，与 Release tag 的时间部分相同）
+
+    Raises:
+        InstallError: 格式不符
+    """
+    if not PACKAGE_TIMESTAMP_PATTERN.fullmatch(timestamp):
+        raise InstallError(f"安装包时间戳格式应为 yyyyMMdd_HHmmss，实际为: {timestamp!r}")
+    return timestamp
 
 
 class InstallManager:
@@ -31,7 +48,6 @@ class InstallManager:
         self.custom_config_dir = Path(custom_config_dir)
         self.project_name = project_name
         self.logger = logging.getLogger(__name__)
-        self.common_config_installed = False  # 标记是否已安装通用配置
         
         # 创建输出目录
         self.base_output_dir.mkdir(parents=True, exist_ok=True)
@@ -318,51 +334,25 @@ class InstallManager:
             except Exception as e:
                 self.logger.error(f"安装 {name} 自定义配置失败: {e}")
                 raise
-        
-        # 只在第一次调用时安装通用配置文件
-        if not self.common_config_installed:
-            self._install_common_config()
-            self.common_config_installed = True
-    
-    def _install_common_config(self):
-        """
-        安装通用配置文件
-        """
-        self.logger.info("安装通用配置文件")
-        
-        # 安装根目录级别的自定义配置
-        root_custom_files = [
-            'danmaku-history.json',
-            'settings.xml'
-        ]
-        
-        for filename in root_custom_files:
-            custom_file = self.custom_config_dir / filename
-            if custom_file.exists():
-                target_file = self.portable_config_dir / filename
-                self._copy_file(custom_file, target_file)
-                self.logger.debug(f"已复制通用配置: {filename}")
-        
-        # 检查并创建script-opts配置文件
-        script_opts_dir = self.portable_config_dir / 'script-opts'
-        script_opts_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 复制uosc_danmaku配置
-        uosc_danmaku_conf = self.custom_config_dir / 'uosc_danmaku.conf'
-        if uosc_danmaku_conf.exists():
-            target_conf = script_opts_dir / 'uosc_danmaku.conf'
-            self._copy_file(uosc_danmaku_conf, target_conf)
-    
-    def create_package(self) -> Path:
+
+    def create_package(self, timestamp: Optional[str] = None) -> Path:
         """
         创建最终的安装包
-        
+
+        Args:
+            timestamp: 资产名里的时间戳（yyyyMMdd_HHmmss）。CI 传入 Release tag 的时间，
+                       使资产名与 tag 一致；None 时使用本机当前时间
+
         Returns:
             安装包路径
         """
         self.logger.info("创建安装包")
-        
-        package_name = f"mpv-package-{self._get_timestamp()}"
+
+        if timestamp is None:
+            timestamp = self._get_timestamp()
+        else:
+            validate_package_timestamp(timestamp)
+        package_name = f"mpv-package-{timestamp}"
         # 打包文件放在根输出目录，而不是项目子目录
         package_path = self.base_output_dir / f"{package_name}.zip"
         
@@ -383,8 +373,7 @@ class InstallManager:
             raise InstallError(f"创建安装包失败: {e}")
     
     def _get_timestamp(self) -> str:
-        """获取时间戳"""
-        from datetime import datetime
+        """获取本机当前时间的时间戳（未传入 --package-timestamp 时的默认值）"""
         return datetime.now().strftime("%Y%m%d_%H%M%S")
     
     def cleanup_output(self):

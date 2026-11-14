@@ -12,7 +12,9 @@ import os
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from config_manager import ConfigManager, ConfigError
+from unittest import mock
+
+from config_manager import ConfigManager, ConfigError, OUTPUT_DIR_ENV
 from download_manager import DownloadManager
 from extract_manager import ExtractManager
 from install_manager import InstallManager
@@ -81,6 +83,38 @@ class TestConfigManager(unittest.TestCase):
         
         with self.assertRaises(ConfigError):
             manager.load_config()
+
+    def test_output_dir_defaults_to_config_file(self):
+        """没有覆盖时使用配置文件中的 output_dir"""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(OUTPUT_DIR_ENV, None)
+            manager = ConfigManager(str(self.config_path))
+            self.assertEqual(manager.get_output_dir(), Path("./output"))
+
+    def test_output_dir_env_overrides_config_file(self):
+        """环境变量覆盖配置文件"""
+        with mock.patch.dict(os.environ, {OUTPUT_DIR_ENV: "env_out"}):
+            manager = ConfigManager(str(self.config_path))
+            self.assertEqual(manager.get_output_dir(), Path("env_out"))
+
+    def test_output_dir_argument_overrides_env(self):
+        """命令行参数优先于环境变量"""
+        with mock.patch.dict(os.environ, {OUTPUT_DIR_ENV: "env_out"}):
+            manager = ConfigManager(str(self.config_path), output_dir="cli_out")
+            self.assertEqual(manager.get_output_dir(), Path("cli_out"))
+
+    def test_output_dir_empty_env_falls_back_to_config_file(self):
+        """空环境变量视为未设置"""
+        with mock.patch.dict(os.environ, {OUTPUT_DIR_ENV: ""}):
+            manager = ConfigManager(str(self.config_path))
+            self.assertEqual(manager.get_output_dir(), Path("./output"))
+
+    def test_output_dir_override_is_not_saved(self):
+        """覆盖值只影响本次运行，不写回配置文件"""
+        manager = ConfigManager(str(self.config_path), output_dir="cli_out")
+        manager.save_config(manager.get_config())
+        saved = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["config"]["output_dir"], "./output")
 
 
 class TestDownloadManager(unittest.TestCase):
