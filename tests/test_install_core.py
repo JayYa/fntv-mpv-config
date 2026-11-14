@@ -130,6 +130,40 @@ class TestInstallManagerCore(unittest.TestCase):
         self.assertFalse((target_path / "scripts" / "data.txt").exists())
 
 
+class TestRepositoryCustomConfig(unittest.TestCase):
+    """用仓库里真实的 custom_config 安装，确认弹幕配置走按依赖目录复制的路径"""
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.custom_config_dir = Path(__file__).parent.parent / "custom_config"
+        self.install_manager = InstallManager(
+            output_dir=Path(self.temp_dir) / "output",
+            custom_config_dir=self.custom_config_dir,
+            project_name="test-config",
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_uosc_danmaku_config_installed_from_dependency_dir(self):
+        self.install_manager.install_dependency("uosc_danmaku", {}, None)
+
+        portable = self.install_manager.portable_config_dir
+        self.assertEqual(
+            (portable / "script-opts" / "uosc_danmaku.conf").read_bytes(),
+            (self.custom_config_dir / "uosc_danmaku" / "script-opts" / "uosc_danmaku.conf").read_bytes(),
+        )
+        self.assertEqual(
+            (portable / "danmaku-history.json").read_bytes(),
+            (self.custom_config_dir / "uosc_danmaku" / "danmaku-history.json").read_bytes(),
+        )
+
+    def test_custom_config_root_holds_only_dependency_dirs(self):
+        """custom_config 根目录下的散文件不会被安装，出现即视为放错位置"""
+        stray_files = [p.name for p in self.custom_config_dir.iterdir() if p.is_file()]
+        self.assertEqual(stray_files, [])
+
+
 if __name__ == '__main__':
     # 运行测试
     unittest.main(verbosity=2)
