@@ -22,6 +22,7 @@ ROLE_RULES = [
     ("scripts/*", "managed"),
     ("fonts/*", "managed"),
     ("shaders/*", "managed"),
+    ("fntv/defaults.conf", "managed"),
     ("mpv.conf", "config"),
     ("input.conf", "config"),
     ("danmaku-history.json", "seed"),
@@ -37,12 +38,26 @@ PROVIDES = {
 }
 
 
-# 客户端依赖的路径（相对 portable_config）：各托管插件的入口脚本
+# mpv.conf 分层：默认值在托管的 fntv/defaults.conf 的 [fntv-defaults] 段里，
+# 薄 mpv.conf 的前两个有效行是 include 它和 profile=fntv-defaults，用户设置写在后面。
+#
+# 为什么要 profile 段（附带 MPV 55d3feb45 实测，见 options/parse_configfile.c 和
+# m_config_frontend.c）：配置文件顶层的选项先存进 default profile，读完整个文件才按顺序应用；
+# include 在应用时才读入目标文件，目标文件的顶层选项追加到 default profile 末尾，
+# 于是排在外层文件所有行之后，默认值反而覆盖用户设置。放进命名段再用 profile= 立即应用，
+# 默认值就在 include 行的位置生效，后面的用户设置覆盖它。
+DEFAULTS_CONF = "fntv/defaults.conf"
+DEFAULTS_PROFILE = "fntv-defaults"
+INCLUDE_LINE = 'include="~~/fntv/defaults.conf"'
+
+# 客户端依赖的路径（相对 portable_config）：各托管插件的入口脚本和分层的 mpv 配置
 REQUIRED_PATHS = [
     "scripts/uosc/main.lua",
     "scripts/uosc_danmaku/main.lua",
     "scripts/smart_skip/main.lua",
     "scripts/thumbfast.lua",
+    "mpv.conf",
+    DEFAULTS_CONF,
 ]
 
 
@@ -196,6 +211,44 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
     }
 
 
+def _effective_lines(data: bytes) -> List[str]:
+    """mpv 配置文件里去掉注释和空行后的行（足够判断分层结构，不是完整的 mpv 解析）"""
+    text = data.decode("utf-8-sig", errors="replace")
+    lines = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not line.startswith(("include", "[")):
+            line = line.split("#", 1)[0].strip()
+        lines.append(line)
+    return lines
+
+
+def check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]:
+    """检查 mpv.conf 分层：include 在最前、带 ~~/，紧跟 profile=fntv-defaults；默认值在命名段里"""
+    errors = []
+    lines = _effective_lines(mpv_conf)
+    first = lines[0] if lines else ""
+    if not first.startswith("include"):
+        errors.append(f"mpv.conf 的首个有效行应为 {INCLUDE_LINE}，实际为 {first!r}"
+                      "（include 必须在任何 [profile] 段和设置之前）")
+    else:
+        value = first[len("include"):].strip().lstrip("=").strip().strip("\"'")
+        if not value.startswith("~~/"):
+            errors.append(f"mpv.conf 的 include 路径必须带 ~~/ 前缀，实际为 {value!r}")
+        elif value != "~~/" + DEFAULTS_CONF:
+            errors.append(f"mpv.conf 的 include 应指向 ~~/{DEFAULTS_CONF}，实际为 {value!r}")
+    if len(lines) < 2 or lines[1].replace(" ", "") != f"profile={DEFAULTS_PROFILE}":
+        errors.append(f"mpv.conf 的 include 行后应紧跟 profile={DEFAULTS_PROFILE}，"
+                      "否则默认值会排在用户设置之后生效")
+    defaults = _effective_lines(defaults_conf)
+    if not defaults or defaults[0] != f"[{DEFAULTS_PROFILE}]":
+        errors.append(f"{DEFAULTS_CONF} 的设置必须全部写在 [{DEFAULTS_PROFILE}] 段里，"
+                      f"首个有效行应为 [{DEFAULTS_PROFILE}]")
+    return errors
+
+
 def check_archive(zip_path: Path, archive_version: Optional[str] = None,
                   history: Optional[dict] = None,
                   previous_manifest: Optional[dict] = None) -> List[str]:
@@ -223,10 +276,18 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
 
         prefix = PORTABLE_CONFIG + "/"
         zip_hashes = {}
+        layered = {}
         for info in z.infolist():
             name = info.filename.replace("\\", "/")
             if name.startswith(prefix) and not name.endswith("/"):
-                zip_hashes[name[len(prefix):]] = sha256_bytes(z.read(info))
+                rel = name[len(prefix):]
+                data = z.read(info)
+                zip_hashes[rel] = sha256_bytes(data)
+                if rel in ("mpv.conf", DEFAULTS_CONF):
+                    layered[rel] = data
+
+    if "mpv.conf" in layered and DEFAULTS_CONF in layered:
+        errors.extend(check_mpv_conf_layering(layered["mpv.conf"], layered[DEFAULTS_CONF]))
 
     if manifest.get("formatVersion") != FORMAT_VERSION:
         errors.append(f"formatVersion 应为 {FORMAT_VERSION}，实际为 {manifest.get('formatVersion')!r}")

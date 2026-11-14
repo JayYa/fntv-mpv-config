@@ -86,8 +86,17 @@ class TestBuildManifest(unittest.TestCase):
             build_manifest(self.portable, "fntv-mpv-v20261114_235959", {})
 
 
+THIN_MPV_CONF = (
+    b"# comment\r\n"
+    b"\r\n"
+    b'include="~~/fntv/defaults.conf"\r\n'
+    b"profile=fntv-defaults\r\n"
+    b"# user settings below\r\n"
+)
+
 VALID_PORTABLE_CONFIG = {
-    "mpv.conf": b"vo=gpu-next\n",
+    "mpv.conf": THIN_MPV_CONF,
+    "fntv/defaults.conf": b"# defaults\n[fntv-defaults]\nvo=gpu-next\n",
     "input.conf": b"",
     "script-opts/uosc.conf": b"",
     "danmaku-history.json": b'{"show_danmaku": true}',
@@ -223,6 +232,77 @@ class TestCheckArchive(unittest.TestCase):
             m["managedDirs"].remove("scripts/uosc_danmaku")
 
         self.assertFailsWith(self.make_zip(edit_manifest=drop_dir), "scripts/uosc_danmaku")
+
+    def test_defaults_conf_is_managed_and_required(self):
+        zip_path = self.make_zip()
+        with zipfile.ZipFile(zip_path) as z:
+            manifest = json.loads(z.read("fntv-manifest.json"))
+        roles = {f["path"]: f["role"] for f in manifest["files"]}
+        self.assertEqual(roles["fntv/defaults.conf"], "managed")
+
+        files = dict(VALID_PORTABLE_CONFIG)
+        del files["fntv/defaults.conf"]
+        self.assertFailsWith(self.make_zip(portable_files=files), "fntv/defaults.conf")
+
+    def assertMpvConfRejected(self, mpv_conf, defaults=None):
+        files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
+        if defaults is not None:
+            files["fntv/defaults.conf"] = defaults
+        errors = check_archive(self.make_zip(portable_files=files))
+        self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
+
+    def test_mpv_conf_layering_is_checked(self):
+        # 首个有效行不是 include
+        self.assertMpvConfRejected(
+            b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n')
+        # include 路径没有 ~~/ 前缀（会按进程当前目录解析）
+        self.assertMpvConfRejected(b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n')
+        # include 写在 profile 段里
+        self.assertMpvConfRejected(
+            b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n')
+        # 没有紧跟 profile=fntv-defaults：默认值会排在用户设置之后
+        self.assertMpvConfRejected(b'include="~~/fntv/defaults.conf"\nvo=gpu\n')
+        # defaults.conf 的选项没放进 [fntv-defaults] 段
+        self.assertMpvConfRejected(THIN_MPV_CONF, defaults=b"vo=gpu-next\n[fntv-defaults]\n")
+
+
+class TestShippedMpvConf(unittest.TestCase):
+    """仓库里的 mpv.conf 分层：设置都搬进 fntv/defaults.conf，薄 mpv.conf 只引用它"""
+
+    MPV_DIR = Path(__file__).parent.parent / "custom_config" / "mpv"
+
+    @staticmethod
+    def effective_lines(path):
+        lines = []
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if line:
+                lines.append(line)
+        return lines
+
+    def test_defaults_carry_the_original_settings(self):
+        # 原 mpv.conf（44d2c9b）里的全部设置，顺序不变
+        self.assertEqual(self.effective_lines(self.MPV_DIR / "fntv" / "defaults.conf"), [
+            "[fntv-defaults]",
+            "border=no",
+            "cache-secs=120",
+            "vo=gpu-next",
+            "hwdec=auto-copy",
+            "geometry=1280x720",
+            "save-position-on-quit=yes",
+            "gpu-shader-cache-dir=~~/.cache",
+            "osd-level=1",
+            "osd-duration=2000",
+            "osd-font-size=36",
+            "osd-bar=no",
+            "log-file=~~/mpv.log",
+        ])
+
+    def test_thin_mpv_conf_only_pulls_in_defaults(self):
+        self.assertEqual(self.effective_lines(self.MPV_DIR / "mpv.conf"), [
+            'include="~~/fntv/defaults.conf"',
+            "profile=fntv-defaults",
+        ])
 
 
 SHA256_DEF = "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34"  # "def"
@@ -367,6 +447,8 @@ class TestPackagingProducesManifest(unittest.TestCase):
         write_portable_config(self.tmp / "custom", {
             "uosc_danmaku/danmaku-history.json": b'{"show_danmaku": true}',
             "uosc/script-opts/uosc.conf": b"",
+            "uosc/mpv.conf": THIN_MPV_CONF,
+            "uosc/fntv/defaults.conf": b"[fntv-defaults]\nvo=gpu-next\n",
         })
         self.dependencies = {
             "uosc": {
