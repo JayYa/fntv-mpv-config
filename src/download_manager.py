@@ -11,6 +11,18 @@ import logging
 from tqdm import tqdm
 
 
+def github_api_headers() -> Dict[str, str]:
+    """
+    GitHub API 请求头。设置了 GITHUB_TOKEN（CI 中由 workflow 传入）或 GH_TOKEN 时带上认证，
+    避免匿名请求按 IP 计的 60 次/小时额度在共享 runner 上被耗尽（403 rate limit）
+    """
+    headers = {"Accept": "application/vnd.github+json"}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
 class DownloadError(Exception):
     """下载错误异常"""
     pass
@@ -390,7 +402,7 @@ class DownloadManager:
             api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
             
             # 如果启用代理，需要直接访问API而不通过代理
-            response = requests.get(api_url, timeout=10)
+            response = requests.get(api_url, headers=github_api_headers(), timeout=10)
             response.raise_for_status()
             
             release_info = response.json()

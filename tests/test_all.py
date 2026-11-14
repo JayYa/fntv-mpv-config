@@ -143,6 +143,33 @@ class TestDownloadManager(unittest.TestCase):
     #     # 这个测试需要网络连接，暂时跳过以避免卡死
     #     pass
 
+    def _fake_release_response(self):
+        response = mock.Mock()
+        response.json.return_value = {"assets": [{"name": "mpv-x86_64-20261108-git-55d3feb45c.7z"}]}
+        return response
+
+    def test_github_api_uses_token_when_set(self):
+        """设置 GITHUB_TOKEN 时 API 请求带认证头（CI 上避免匿名限流）"""
+        env = {"GITHUB_TOKEN": "t0ken"}
+        with mock.patch.dict(os.environ, env), \
+                mock.patch("download_manager.requests.get", return_value=self._fake_release_response()) as get:
+            name = self.manager._get_github_asset_filename(
+                "shinchiro", "mpv-winbuild-cmake", "20261108", "mpv-x86_64-{version}", "7z")
+
+        self.assertEqual(name, "mpv-x86_64-20261108-git-55d3feb45c.7z")
+        self.assertEqual(get.call_args.kwargs["headers"]["Authorization"], "Bearer t0ken")
+
+    def test_github_api_anonymous_without_token(self):
+        """没有 token 时仍可匿名请求（本地构建）"""
+        with mock.patch.dict(os.environ, {}), \
+                mock.patch("download_manager.requests.get", return_value=self._fake_release_response()) as get:
+            os.environ.pop("GITHUB_TOKEN", None)
+            os.environ.pop("GH_TOKEN", None)
+            self.manager._get_github_asset_filename(
+                "shinchiro", "mpv-winbuild-cmake", "20261108", "mpv-x86_64-{version}", "7z")
+
+        self.assertNotIn("Authorization", get.call_args.kwargs["headers"])
+
 
 class TestExtractManager(unittest.TestCase):
     """解压管理器测试"""
