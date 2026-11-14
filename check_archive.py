@@ -10,6 +10,7 @@
 import argparse
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -25,6 +26,8 @@ def main() -> int:
                         help="历史哈希文件（默认: 仓库根目录的 manifest-history.json）")
     parser.add_argument("--previous-manifest",
                         help="上一版 Release 的 fntv-manifest.json；它的哈希也必须都还在")
+    parser.add_argument("--manifest-asset",
+                        help="Release 要单独上传的 fntv-manifest.json；必须存在且与 zip 里的相同")
     args = parser.parse_args()
 
     previous = None
@@ -34,6 +37,14 @@ def main() -> int:
     errors = check_archive(Path(args.zip_path), archive_version=args.archive_version,
                            history=load_history(Path(args.history)),
                            previous_manifest=previous)
+    if args.manifest_asset:
+        asset = Path(args.manifest_asset)
+        if not asset.is_file():
+            errors.append(f"Release 要上传的 fntv-manifest.json 不存在: {asset}")
+        else:
+            with zipfile.ZipFile(args.zip_path) as z:
+                if asset.read_bytes() != z.read("fntv-manifest.json"):
+                    errors.append(f"Release 要上传的 {asset} 与 zip 里的 fntv-manifest.json 不同")
     if errors:
         print(f"契约测试失败（{len(errors)} 项）:")
         for error in errors:

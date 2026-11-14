@@ -157,7 +157,7 @@ jobs:
         # knownHashes 只增不减：manifest-history.json 和上一版清单里的每个哈希都还在
         $previous = @()
         if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
-        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}" @previous
+        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}" --manifest-asset "${{ steps.config.outputs.OUTPUT_DIR }}/fntv-manifest.json" @previous
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       shell: pwsh
       env:
@@ -369,7 +369,7 @@ jobs:
         # fntv-manifest.json 也单独上传（与 zip 根目录里的相同），供下一次构建并入历史哈希
         files: |
           ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
-          ${{ steps.config.outputs.OUTPUT_DIR }}/fntv-mpv-config/fntv-manifest.json
+          ${{ steps.config.outputs.OUTPUT_DIR }}/fntv-manifest.json
         fail_on_unmatched_files: true
         draft: false
         prerelease: false

@@ -162,6 +162,10 @@ class MPVConfigManager:
                         self.logger.error(f"契约测试失败: {error}")
                     return False
                 self.logger.info("契约测试通过")
+
+                # Release 单独上传的清单资产：放在 zip 旁边，路径与项目名子目录无关
+                asset_path = write_manifest(package_path.parent, manifest)
+                self.logger.info(f"清单资产已写入: {asset_path}")
             
             # 清理临时文件
             if cleanup:
