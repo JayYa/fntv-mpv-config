@@ -12,6 +12,7 @@ from .download_manager import DownloadManager, DownloadError
 from .extract_manager import ExtractManager, ExtractError
 from .install_manager import InstallManager, InstallError, validate_package_timestamp
 from .log_manager import LogManager
+from .manifest import archive_version_for, build_manifest, check_archive, write_manifest
 
 
 class MPVConfigManager:
@@ -119,10 +120,28 @@ class MPVConfigManager:
                     if not self._should_continue_on_error():
                         return False
             
-            # 创建安装包
+            # 生成清单、创建安装包，然后对安装包跑契约测试
             if create_package and not skip_install and self.install_manager:
+                if package_timestamp is None:
+                    package_timestamp = self.install_manager._get_timestamp()
+                archive_version = archive_version_for(package_timestamp)
+                manifest = build_manifest(
+                    self.install_manager.portable_config_dir,
+                    archive_version,
+                    self._get_components(),
+                )
+                write_manifest(self.install_manager.output_dir, manifest)
+                self.logger.info(f"清单已生成: {archive_version}，{len(manifest['files'])} 个文件")
+
                 package_path = self.install_manager.create_package(package_timestamp)
                 self.logger.info(f"安装包已创建: {package_path}")
+
+                errors = check_archive(package_path, archive_version=archive_version)
+                if errors:
+                    for error in errors:
+                        self.logger.error(f"契约测试失败: {error}")
+                    return False
+                self.logger.info("契约测试通过")
             
             # 清理临时文件
             if cleanup:
@@ -176,6 +195,13 @@ class MPVConfigManager:
         
         return target_dependencies
     
+    def _get_components(self) -> dict:
+        """清单的 components：已启用的依赖项名 -> package_cfg.json 里的版本"""
+        return {
+            name: str(dep.get('version', ''))
+            for name, dep in self.config_manager.get_enabled_dependencies().items()
+        }
+
     def _should_continue_on_error(self) -> bool:
         """是否在错误时继续执行"""
         # 可以从配置文件读取，这里默认返回False

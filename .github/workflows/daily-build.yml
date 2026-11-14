@@ -125,6 +125,13 @@ jobs:
         }
       shell: pwsh
 
+    - name: Contract test (fntv-manifest.json)
+      run: |
+        # 清单与 zip 内容一致、role 合法、客户端依赖的路径和 provides 齐全，archiveVersion 等于本次 tag；失败则不发版
+        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}"
+      env:
+        PYTHONIOENCODING: utf-8
+
     - name: Parse enabled plugins
       id: plugins
       run: |
