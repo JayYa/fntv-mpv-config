@@ -165,6 +165,33 @@ class TestCheckArchive(unittest.TestCase):
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("archiveVersion", failed.stdout + failed.stderr)
 
+    def test_command_line_checks_the_release_manifest_asset(self):
+        script = str(PROJECT_ROOT / "check_archive.py")
+        zip_path = self.make_zip()
+        empty_history = self.tmp / "empty-history.json"
+        empty_history.write_text('{"archives": [], "files": {}}', encoding="utf-8")
+        asset = self.tmp / "asset" / "fntv-manifest.json"
+        asset.parent.mkdir()
+        with zipfile.ZipFile(zip_path) as z:
+            asset.write_bytes(z.read("fntv-manifest.json"))
+
+        def run(asset_path):
+            return subprocess.run(
+                [sys.executable, script, str(zip_path), "--history", str(empty_history),
+                 "--manifest-asset", str(asset_path)],
+                capture_output=True, text=True, encoding="utf-8",
+            )
+
+        same = run(asset)
+        missing = run(self.tmp / "nowhere" / "fntv-manifest.json")
+        asset.write_text("{}", encoding="utf-8")
+        different = run(asset)
+
+        self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertNotEqual(different.returncode, 0)
+        self.assertIn("fntv-manifest.json", different.stdout)
+
     def test_consistent_archive_passes(self):
         zip_path = self.make_zip()
 
@@ -487,7 +514,7 @@ class TestPackagingProducesManifest(unittest.TestCase):
 
         config_path = self.tmp / "package_cfg.json"
         config_path.write_text(json.dumps({
-            "name": "fntv-mpv-config",
+            "name": json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"],
             "version": "1.0.0",
             "config": {
                 "output_dir": str(self.tmp / "out"),
@@ -512,6 +539,15 @@ class TestPackagingProducesManifest(unittest.TestCase):
             "smart_skip": "local", "thumbfast": "local",
         })
         self.assertEqual(check_archive(zip_path, archive_version="fntv-mpv-v20261114_235959"), [])
+
+    def test_manifest_asset_sits_next_to_the_zip(self):
+        # Release 把 <输出目录>/fntv-manifest.json 作为单独资产上传，路径不能依赖项目名子目录
+        ok, zip_path = self.run_packaging()
+
+        self.assertTrue(ok)
+        asset = zip_path.parent / "fntv-manifest.json"
+        with zipfile.ZipFile(zip_path) as z:
+            self.assertEqual(asset.read_bytes(), z.read("fntv-manifest.json"))
 
     def test_packaging_merges_history_and_previous_manifest(self):
         history_path = self.tmp / "history.json"
