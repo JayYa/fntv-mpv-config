@@ -10,7 +10,7 @@ from typing import List, Optional
 from .config_manager import ConfigManager, ConfigError
 from .download_manager import DownloadManager, DownloadError
 from .extract_manager import ExtractManager, ExtractError
-from .install_manager import InstallManager, InstallError
+from .install_manager import InstallManager, InstallError, validate_package_timestamp
 from .log_manager import LogManager
 
 
@@ -43,7 +43,8 @@ class MPVConfigManager:
             skip_download: bool = False, 
             skip_install: bool = False,
             create_package: bool = True,
-            cleanup: bool = True) -> bool:
+            cleanup: bool = True,
+            package_timestamp: Optional[str] = None) -> bool:
         """
         运行主流程
         
@@ -53,7 +54,8 @@ class MPVConfigManager:
             skip_install: 跳过安装步骤
             create_package: 是否创建安装包
             cleanup: 是否清理临时文件
-            
+            package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用本机当前时间
+
         Returns:
             是否成功
         """
@@ -119,7 +121,7 @@ class MPVConfigManager:
             
             # 创建安装包
             if create_package and not skip_install and self.install_manager:
-                package_path = self.install_manager.create_package()
+                package_path = self.install_manager.create_package(package_timestamp)
                 self.logger.info(f"安装包已创建: {package_path}")
             
             # 清理临时文件
@@ -393,6 +395,14 @@ class MPVConfigManager:
             return False
 
 
+def _package_timestamp_arg(value: str) -> str:
+    """argparse 类型函数：启动时就拒绝格式错误的时间戳，避免构建完才失败"""
+    try:
+        return validate_package_timestamp(value)
+    except InstallError as e:
+        raise argparse.ArgumentTypeError(str(e))
+
+
 def create_cli_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
@@ -453,6 +463,13 @@ def create_cli_parser() -> argparse.ArgumentParser:
         help='跳过打包步骤'
     )
     
+    parser.add_argument(
+        '--package-timestamp',
+        type=_package_timestamp_arg,
+        help='安装包文件名 mpv-package-<时间戳>.zip 中的时间戳，格式 yyyyMMdd_HHmmss；'
+             'CI 传入 Release tag 的时间，不传则用本机当前时间'
+    )
+
     parser.add_argument(
         '--skip-cleanup',
         action='store_true',
@@ -524,7 +541,8 @@ def main():
                 skip_download=args.skip_download,
                 skip_install=args.skip_install,
                 create_package=not (args.skip_package),
-                cleanup=not args.skip_cleanup
+                cleanup=not args.skip_cleanup,
+                package_timestamp=args.package_timestamp
             )
             
             if not success:

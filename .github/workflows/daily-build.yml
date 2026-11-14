@@ -84,9 +84,19 @@ jobs:
         Write-Host "最终临时目录: $tempDirResolved"
       shell: pwsh
     
+    - name: Get current date
+      id: date
+      run: |
+        # 在 Windows 环境下获取北京时间；Release tag 和安装包资产名都用这个时间
+        $beijingTime = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'China Standard Time')
+        $dateString = $beijingTime.ToString('yyyyMMdd_HHmmss')
+        echo "DATE=$dateString" >> $env:GITHUB_OUTPUT
+        Write-Host "当前北京时间: $dateString"
+      shell: pwsh
+
     - name: Run MPV config build
       run: |
-        python run.py --log-level INFO
+        python run.py --log-level INFO --package-timestamp "${{ steps.date.outputs.DATE }}"
       env:
         # 设置UTF-8编码以支持中文日志
         PYTHONIOENCODING: utf-8
@@ -101,17 +111,20 @@ jobs:
         echo "Generated files:"
         ls -la "${{ steps.config.outputs.OUTPUT_DIR }}" || echo "输出目录不存在或为空"
       shell: bash
-    
-    - name: Get current date
-      id: date
+
+    - name: Verify package name matches tag time
       run: |
-        # 在 Windows 环境下获取北京时间
-        $beijingTime = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'China Standard Time')
-        $dateString = $beijingTime.ToString('yyyyMMdd_HHmmss')
-        echo "DATE=$dateString" >> $env:GITHUB_OUTPUT
-        Write-Host "当前北京时间: $dateString"
+        # 资产名必须是 mpv-package-<tag 时间>.zip，且输出目录里只有这一个 zip
+        $expected = "mpv-package-${{ steps.date.outputs.DATE }}.zip"
+        $zips = @(Get-ChildItem -Path "${{ steps.config.outputs.OUTPUT_DIR }}" -Filter *.zip | ForEach-Object Name)
+        Write-Host "期望资产: $expected"
+        Write-Host "实际 zip: $($zips -join ', ')"
+        if ($zips.Count -ne 1 -or $zips[0] -ne $expected) {
+          Write-Error "安装包名与 tag 时间不一致"
+          exit 1
+        }
       shell: pwsh
-    
+
     - name: Parse enabled plugins
       id: plugins
       run: |
@@ -316,7 +329,8 @@ jobs:
           - 📖 [使用文档](https://github.com/QiaoKes/fntv-mpv-config/blob/release/README.md)
           - 🐛 [问题反馈](https://github.com/QiaoKes/fntv-mpv-config/issues)
           - 🔄 [配置更新](https://github.com/QiaoKes/fntv-mpv-config/releases)
-        files: ${{ steps.config.outputs.OUTPUT_DIR }}/*.zip
+        files: ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
+        fail_on_unmatched_files: true
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
