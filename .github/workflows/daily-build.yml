@@ -298,8 +298,7 @@ jobs:
           📅 构建时间: ${{ steps.date.outputs.DATE }}
           🔧 构建分支: ${{ github.ref_name }}
           📝 提交ID: ${{ github.sha }}
-          🎯 项目版本: v1.0.1
-          
+
           ## 📦 本次构建包含
           ### 🎥 核心组件
           - MPV播放器主程序
@@ -310,7 +309,7 @@ jobs:
           ${{ steps.plugins.outputs.ENABLED_PLUGINS }}
           
           ## 🚀 快速开始
-          1. 下载 `mpv-package-*.zip` 文件
+          1. 下载 `mpv-package-${{ steps.date.outputs.DATE }}.zip` 文件
           2. 解压到任意目录
           3. 双击运行 `mpv.exe` 即可使用
           4. 所有配置都是便携式的，无需安装
@@ -326,9 +325,9 @@ jobs:
           - 💬 弹幕设置: `portable_config/script-opts/uosc_danmaku.conf`
           
           ## 🔗 相关链接
-          - 📖 [使用文档](https://github.com/QiaoKes/fntv-mpv-config/blob/release/README.md)
-          - 🐛 [问题反馈](https://github.com/QiaoKes/fntv-mpv-config/issues)
-          - 🔄 [配置更新](https://github.com/QiaoKes/fntv-mpv-config/releases)
+          - 📖 [使用文档](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/README.md)
+          - 🐛 [问题反馈](${{ github.server_url }}/${{ github.repository }}/issues)
+          - 🔄 [配置更新](${{ github.server_url }}/${{ github.repository }}/releases)
         files: ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
         fail_on_unmatched_files: true
         draft: false
