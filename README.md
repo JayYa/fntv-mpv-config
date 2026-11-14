@@ -444,6 +444,36 @@ custom_config/
 - 创建带时间戳的Release
 - 支持构建失败时的错误处理
 
+## 归档清单 fntv-manifest.json
+
+归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，生成和检查的代码在 `src/manifest.py`。
+
+- `files[]` 列出 `portable_config` 下的每个文件：相对路径、`sha256`、`role`、`knownHashes`。
+- 归属（`role`）：`scripts/**`、`fonts/**`、`shaders/**`、`fntv/defaults.conf` 是 `managed`；`mpv.conf`、`input.conf`、`script-opts/*.conf` 是 `config`；`danmaku-history.json` 是 `seed`。新增文件如果不在这些规则里，打包会失败，要先在 `src/manifest.py` 的 `ROLE_RULES` 里给它定归属。
+- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release，由 `build_manifest_history.py` 生成，复现方法见脚本开头），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 自动下载，`--previous-manifest`）。
+- `obsolete`：历史里出现过、本次没有的托管路径，带它们的 `knownHashes`。删掉的 `config` 文件不进 `obsolete`，客户端一律保留。
+
+### mpv.conf 分层
+
+默认值放在托管的 `custom_config/mpv/fntv/defaults.conf`，**全部写在 `[fntv-defaults]` 段里**；`mpv.conf` 是给用户改的薄文件，前两个有效行固定为：
+
+```
+include="~~/fntv/defaults.conf"
+profile=fntv-defaults
+```
+
+用户设置写在这两行后面，覆盖默认值。改默认值只改 `defaults.conf`。
+
+不能只写 include、把默认值放在 `defaults.conf` 顶层：附带的 mpv（`55d3feb45`）把配置文件顶层选项先存进 default profile，读完整个文件才应用，include 进来的顶层选项被追加到最后，结果默认值覆盖了用户设置（已用附带 MPV 实测）。放进命名段再用 `profile=` 应用，默认值就在 include 行的位置生效。契约测试检查这两行的位置、`~~/` 前缀和 `[fntv-defaults]` 段。
+
+### 契约测试
+
+打包后自动跑契约测试（`run.py` 内部一次，workflow 里再用 `check_archive.py` 带 tag 跑一次）：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减。任何一条失败都不会发版。手工检查一个 zip：
+
+```bash
+python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json]
+```
+
 ## 配置架构说明
 
 ### 双层配置系统 (v1.0.0+)

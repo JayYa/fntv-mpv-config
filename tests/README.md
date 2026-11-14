@@ -11,7 +11,10 @@ tests/
 ├── test_all.py          # 原有的基础功能测试
 ├── test_local_core.py   # 本地包功能核心测试
 ├── test_install_core.py # 安装管理器核心功能测试
+├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
 ```
+
+`test_manifest.py` 覆盖清单生成（`build_manifest`）、对 zip 的契约测试（`check_archive` 和根目录的 `check_archive.py`），以及用本地假插件跑完整打包流程后 zip 带清单、契约失败时打包失败。
 
 ### 测试模块详情
 
