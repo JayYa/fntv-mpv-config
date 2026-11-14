@@ -3,6 +3,7 @@
 协调各个模块的工作，提供命令行界面
 """
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -12,7 +13,11 @@ from .download_manager import DownloadManager, DownloadError
 from .extract_manager import ExtractManager, ExtractError
 from .install_manager import InstallManager, InstallError, validate_package_timestamp
 from .log_manager import LogManager
-from .manifest import archive_version_for, build_manifest, check_archive, write_manifest
+from .manifest import (archive_version_for, build_manifest, check_archive, load_history,
+                       write_manifest)
+
+# 提交在仓库里的历史哈希
+DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
 
 
 class MPVConfigManager:
@@ -45,7 +50,9 @@ class MPVConfigManager:
             skip_install: bool = False,
             create_package: bool = True,
             cleanup: bool = True,
-            package_timestamp: Optional[str] = None) -> bool:
+            package_timestamp: Optional[str] = None,
+            history_path: Optional[str] = None,
+            previous_manifest_path: Optional[str] = None) -> bool:
         """
         运行主流程
         
@@ -56,6 +63,8 @@ class MPVConfigManager:
             create_package: 是否创建安装包
             cleanup: 是否清理临时文件
             package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用本机当前时间
+            history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
+            previous_manifest_path: 上一版 Release 的 fntv-manifest.json，None 时只用历史哈希
 
         Returns:
             是否成功
@@ -125,10 +134,20 @@ class MPVConfigManager:
                 if package_timestamp is None:
                     package_timestamp = self.install_manager._get_timestamp()
                 archive_version = archive_version_for(package_timestamp)
+                history = load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH)
+                previous_manifest = None
+                if previous_manifest_path:
+                    with open(previous_manifest_path, 'r', encoding='utf-8') as f:
+                        previous_manifest = json.load(f)
+                    self.logger.info(
+                        f"并入上一版清单: {previous_manifest.get('archiveVersion', previous_manifest_path)}"
+                    )
                 manifest = build_manifest(
                     self.install_manager.portable_config_dir,
                     archive_version,
                     self._get_components(),
+                    history=history,
+                    previous_manifest=previous_manifest,
                 )
                 write_manifest(self.install_manager.output_dir, manifest)
                 self.logger.info(f"清单已生成: {archive_version}，{len(manifest['files'])} 个文件")
@@ -136,7 +155,8 @@ class MPVConfigManager:
                 package_path = self.install_manager.create_package(package_timestamp)
                 self.logger.info(f"安装包已创建: {package_path}")
 
-                errors = check_archive(package_path, archive_version=archive_version)
+                errors = check_archive(package_path, archive_version=archive_version,
+                                       history=history, previous_manifest=previous_manifest)
                 if errors:
                     for error in errors:
                         self.logger.error(f"契约测试失败: {error}")
@@ -497,6 +517,16 @@ def create_cli_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        '--manifest-history',
+        help='历史哈希文件（默认: 仓库根目录的 manifest-history.json）'
+    )
+
+    parser.add_argument(
+        '--previous-manifest',
+        help='上一版 Release 的 fntv-manifest.json；它的 knownHashes 和 obsolete 并入本次清单'
+    )
+
+    parser.add_argument(
         '--skip-cleanup',
         action='store_true',
         help='不清理临时文件'
@@ -568,7 +598,9 @@ def main():
                 skip_install=args.skip_install,
                 create_package=not (args.skip_package),
                 cleanup=not args.skip_cleanup,
-                package_timestamp=args.package_timestamp
+                package_timestamp=args.package_timestamp,
+                history_path=args.manifest_history,
+                previous_manifest_path=args.previous_manifest
             )
             
             if not success:

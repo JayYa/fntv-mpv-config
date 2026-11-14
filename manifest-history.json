@@ -1,0 +1,283 @@
+{
+  "description": "本 fork 发过的 MPV 归档中每个 portable_config 路径出现过的 sha256；由 build_manifest_history.py 生成，只增不减",
+  "archives": [
+    "fntv-mpv-v20260826_013404",
+    "fntv-mpv-v20261108_203006",
+    "fntv-mpv-v20261108_233327",
+    "fntv-mpv-v20261110_224319",
+    "fntv-mpv-v20261114_223600"
+  ],
+  "files": {
+    "danmaku-history.json": [
+      "f00e5cefaa60571b0ea5335a16b8858ed725c801524ae64866ea44c69bd6f635"
+    ],
+    "fonts/uosc_icons.otf": [
+      "a853f50913597e67f76facd269ff230c2f3038f9acadec04dd653080785dee25"
+    ],
+    "fonts/uosc_textures.ttf": [
+      "ccc0660f284dfceb5ab31eb363ccb2355df30fcdf628e781ee374b7d4172ada5"
+    ],
+    "input.conf": [
+      "fbc6b7a163d24e9118fda4548f66dee503d8cd9c7927bf817f834691141eb032"
+    ],
+    "mpv.conf": [
+      "9732bf404e4ae319037233f6ecd789af1d55e3c53bbe5ea927ed14070ee7b68a"
+    ],
+    "script-opts/thumbfast.conf": [
+      "6fac48dc1f0243ccd5eca3cef03e2aa500fac7dd65eb356714be2c9c37bfe3b7"
+    ],
+    "script-opts/uosc.conf": [
+      "201f56c33e2ef50fa54cabd5b6637a7d67b02f62048e76062bdb70056ba2d229",
+      "a32f460dd88e5f344d90688c1eac8841775e5f9a6048eb657e555f99703fe76e"
+    ],
+    "script-opts/uosc_danmaku.conf": [
+      "91932c0d63b610fd087b183ad2be4063408fe292a9043a9cf7a57b2e5a4e6c61"
+    ],
+    "scripts/smart_skip/api.lua": [
+      "27a14979ffd41bab3af236663e29d4821bb6879f1273f0ffa7f4c6394759a016",
+      "9ecb026a3e6e90c1e5daa3cf3c484683ec8ad98bd08b4aa584f366751b92edff"
+    ],
+    "scripts/smart_skip/ask.lua": [
+      "d44c96c08e30727d10602f2c735883afd9fdf0982feba5ea75f97eb4a3e0e679"
+    ],
+    "scripts/smart_skip/http_async.lua": [
+      "0e30f5e4ad626f2719c951ab07bfbd6d95c51abb2b3fa8015dec92017e5c4730"
+    ],
+    "scripts/smart_skip/main.lua": [
+      "249e586260eff9b8a51b00dad56b78955b77e5c3146ceb9abd12661a0be59c21"
+    ],
+    "scripts/smart_skip/menu.lua": [
+      "b375388935a32b63e926f27466114e94f8df0e74fc4bf37cb4e5d9f61faf214f"
+    ],
+    "scripts/smart_skip/mutils.lua": [
+      "1e45e9b86ed4f04505b44ddca7b5c9418e8df16daceb0450585d06f998f00002",
+      "e8612bbe820b2d691c5ec3d6660f64f9b2d2e440ac60f9085af6251b4fbaec9d"
+    ],
+    "scripts/smart_skip/options.lua": [
+      "a54c1c304888e0d4ac7f28621748777dddd31eae8f06d01083fe04f65dc5cb5f"
+    ],
+    "scripts/thumbfast.lua": [
+      "c9154e1d4c08801b1cd7023e7837de5865644cd98af86b071c4f3ee8df6b176c"
+    ],
+    "scripts/uosc/bin/ziggy-darwin": [
+      "ab24a4a0ac040b9842cd29603309f9a6e172e0bf5f8824817cce2be95c61f965"
+    ],
+    "scripts/uosc/bin/ziggy-linux": [
+      "73895907d964efb6a1a2d5e76814833b0e310627ab4b791aaeeaea4b9163109f"
+    ],
+    "scripts/uosc/bin/ziggy-windows.exe": [
+      "ab76a5a059ef0aef0f54dc317e31eae25cc5b7e3840f81cbf98b1ab07a96f636"
+    ],
+    "scripts/uosc/char-conv/zh.json": [
+      "1e250ec50866529b57d273fa90bd8fc56f22b4371d5ea641ce3bebc832dd9889"
+    ],
+    "scripts/uosc/elements/BufferingIndicator.lua": [
+      "f7ceb7c88916e49ee5aef2a8c45d53ee5a6f9931b7977898ecf96ebfa543c1c4"
+    ],
+    "scripts/uosc/elements/Button.lua": [
+      "31d407dfc9e54295201f392d03886ef801108ead6384a2d12a620eafa38724c2",
+      "c5b9f1df2025a010f6606c708144abe383c99be485c51fae1dbdc7ee17f94f63"
+    ],
+    "scripts/uosc/elements/Controls.lua": [
+      "8dc03eb0f248b9b4cc7213eeb2d9dcb5abb6e137484ecf7702f4800ba71dfd1b",
+      "930f9c04fcc4e06dc8321e0639b719800a7b2c99e52e9acd5a9b4d6502c01565"
+    ],
+    "scripts/uosc/elements/Curtain.lua": [
+      "7f965119a6fc70d8cce70cf025db764a5d83433321da79a7734c691afdbb1e32"
+    ],
+    "scripts/uosc/elements/CycleButton.lua": [
+      "e49e20110bf84d852ce4d85f26e36a24330ef9a54f28f0886cc658352e09aa75"
+    ],
+    "scripts/uosc/elements/Element.lua": [
+      "381141cd760a42769c0abdf7cfdf7ef26930249e133fa9800e7c8623f55bc016"
+    ],
+    "scripts/uosc/elements/Elements.lua": [
+      "f44e57ea4c4c60f82f3775df9337064fdbcb7cb4bc157b47a5c07a12ee8a62c7"
+    ],
+    "scripts/uosc/elements/ManagedButton.lua": [
+      "da1c1ecf4d145e5c06fb7077a654b1c58412ae106e54b3f5946b919dabd01446"
+    ],
+    "scripts/uosc/elements/Menu.lua": [
+      "0cbc42afbe72f3f76f069995744de1e772d706445ed7987d1bffaafed50f2f49",
+      "1c1b021adab4602ea965460f2d3795559fee764238dfc686cad440df2d29ccb9"
+    ],
+    "scripts/uosc/elements/PauseIndicator.lua": [
+      "3f15a46b1a7e74e1f0e23942ff1814b44c2f5fd9d7c9337222a9743271f090c6",
+      "f2fe8f6bf894c60686e021a5faa0eebf1da940ab61dbbac109f173865a6c8664"
+    ],
+    "scripts/uosc/elements/Speed.lua": [
+      "fee532d01e108cb4d74fbfdedaf91ea2fff81af3b4f3f4e3543fd8aaefa92326"
+    ],
+    "scripts/uosc/elements/Timeline.lua": [
+      "5be97872da67aa091e37f395664ad05e4c1f6e3cd6e727ef68217e236176b2ee",
+      "696637de58fecf46035cc688bafdddc34b3bc39c393b356689d101a2a256182a"
+    ],
+    "scripts/uosc/elements/TopBar.lua": [
+      "7513c5ec0924befc5f7e8edb5a0c96870150ed827ace820ba863f1995ba8e3c0",
+      "c8dd9a3e8dde88023f267f7ffdf72a69c78524fa0ac488fcbff7864048459993"
+    ],
+    "scripts/uosc/elements/Updater.lua": [
+      "41ecb02fb396d9a05f16db16b3970986bd21b31d4d5e32db9ed072338d9bc065"
+    ],
+    "scripts/uosc/elements/Volume.lua": [
+      "fa16d0cd19df402ef631931d49787ccc7fdf06adf3e86913deb5bafcd3266c7a"
+    ],
+    "scripts/uosc/elements/WindowBorder.lua": [
+      "61435c9c6172d47cf24c6bddf65f3e0081939cd88a20b0ae4b4a103aa613a3a2",
+      "c8a6a64c321732913bc8ad838a202bdca037cfab3db4dcd636cb63098dc806cb"
+    ],
+    "scripts/uosc/intl/de.json": [
+      "606d296d7d0dd010cb732722a0c9e28abc9c0d09d962e959212c29bfdf2a125e"
+    ],
+    "scripts/uosc/intl/es.json": [
+      "cc38c03c9b954c8711b23eddfedb83ba6c9653a133c3ad7e432cfecdd089a999"
+    ],
+    "scripts/uosc/intl/fr.json": [
+      "a8ec21232c1fbb5c3de5a90f1f92ec1e4258ea9827f9eff87989f20471552c3b"
+    ],
+    "scripts/uosc/intl/it.json": [
+      "58bf14006cb8a61730ee7faabad4a7c4ea99681efd4268ffb02a26354076839f"
+    ],
+    "scripts/uosc/intl/pl.json": [
+      "c3733a695296104618683f4b705b1e03493d1cd96ba5fe98c339020b3cd95cdd"
+    ],
+    "scripts/uosc/intl/pt.json": [
+      "ad8539c3d8ae368a93e2cd0402ad92480aa3ea57db6430ee1bd6c34876005a1f"
+    ],
+    "scripts/uosc/intl/ro.json": [
+      "22c90c139b53e0b417a62987baa4e46b010195df8e85bd076861b7044dd3ab1e"
+    ],
+    "scripts/uosc/intl/ru.json": [
+      "ac86fd3ae167e79cc51aec8bd12f04dc9491613fecdba6820f3388db6671b9a6"
+    ],
+    "scripts/uosc/intl/tr.json": [
+      "1081a7e970764e0ff438c3d8c2164543732cc10f6feb8e11fa670b741d3d896e"
+    ],
+    "scripts/uosc/intl/uk.json": [
+      "e57d8cbc32b5b8e92b50cde0b2eb06cb405f87a138ebd88b5cb962d84be8e4a8"
+    ],
+    "scripts/uosc/intl/zh-HK.json": [
+      "889667e15b379bed7015fdc6bb6ac5295fba2bbb810f9392582da296d5444e5c"
+    ],
+    "scripts/uosc/intl/zh-hans.json": [
+      "d3339e658874530f4275c70d0837986746f98a9abca453d4bb2bde285c5dde31"
+    ],
+    "scripts/uosc/lib/ass.lua": [
+      "e0eab05a8924cb184867c965aefdcabd5b11989335dd1d24aa9d4a44e2346694"
+    ],
+    "scripts/uosc/lib/buttons.lua": [
+      "f79302eda925010a8ccbfa7e960e0fc7760114b920d641897474ed91ea318f73"
+    ],
+    "scripts/uosc/lib/char_conv.lua": [
+      "57dca5a0498d254826d8c18a1fc800b3556a6f49318e7ad0fbefc51b7167660f"
+    ],
+    "scripts/uosc/lib/cursor.lua": [
+      "8a9f7bb14eae92f4b171c5655899c9954f4050a897c08db42aa90f72a84a3c0c",
+      "d77796d3d857b5527b882c18b92b9e81d7fb3f8a27e7b5ebf52e489c98bbc7f6"
+    ],
+    "scripts/uosc/lib/fzy.lua": [
+      "5b1b53aaf56c8b51bd3507f6f6b76c042b92ceb55eaac8533277754158426711"
+    ],
+    "scripts/uosc/lib/intl.lua": [
+      "234df27c1e6a27089b04e156c3146669bbe4fcb3960169692b222c9e4867110d"
+    ],
+    "scripts/uosc/lib/menus.lua": [
+      "08181fa05c2a0dd0c5146c0a0e02e44a690732f84a08e3c5bfdd06ff68e0f79e"
+    ],
+    "scripts/uosc/lib/std.lua": [
+      "fdaedd93bdb9b716dbd99ec1c8cff08b3d316c9fdc793718e2b4ee7a504799f5"
+    ],
+    "scripts/uosc/lib/text.lua": [
+      "f4e040412b2e3c2d276d8098aa1eea01e020e916123336470dd2480a5968eb07"
+    ],
+    "scripts/uosc/lib/utils.lua": [
+      "297fb0a150bc0ec8a4d342373c3864aafdd5aee7cccc66469c2a656cf120302c",
+      "29b9b56c00e7402c9ced88b942f1145f5d1fa4ba7fcfe83342c8016857e84fed"
+    ],
+    "scripts/uosc/main.lua": [
+      "609326e88a69b5dcb2b2c8c8931ff806d0cbf3c62ee76294d99d0bf6b429a296",
+      "bf97dcde4f1b8bd74a5e1c672a436a5584b5db2dc9413ab5585745afd9e1dd8d"
+    ],
+    "scripts/uosc_danmaku/.gitignore": [
+      "01a01aa0860ed7514197d8907d99f150fe5e1ffd197015a9b42f269cea6eb73b"
+    ],
+    "scripts/uosc_danmaku/apis/dandanplay.lua": [
+      "fb456dc3da269d03e380c8507491bdbf9142d27e8703ad80e070f8d47a6b3222"
+    ],
+    "scripts/uosc_danmaku/apis/extra.lua": [
+      "bf79ea1db58c86b4dbab2678124739f8578e162bb0d7c10e22879096214443c3"
+    ],
+    "scripts/uosc_danmaku/dicts/s2t_chars.lua": [
+      "318c29eae825dad40b05435931b63ca95a463a320afcf91e76f2692d290c3c91"
+    ],
+    "scripts/uosc_danmaku/dicts/t2s_chars.lua": [
+      "84dc35fb62e6480d6cceb2478284331517a11c5b211c0c5f7c3eb34bede5285c"
+    ],
+    "scripts/uosc_danmaku/main.lua": [
+      "a2ca7e7b02c0e75c5b165eaf419ed9364d18bbc322b5861bd2a328ef73d4313d"
+    ],
+    "scripts/uosc_danmaku/modules/aes.lua": [
+      "fb4649b9aefce792596338c72d5ce9f5df9ace20db89cacbfc069ce17a30f772"
+    ],
+    "scripts/uosc_danmaku/modules/base64.lua": [
+      "4a8035153f69e7326dd09204557036b271eb3ed390883e62ac1b6853643526d8"
+    ],
+    "scripts/uosc_danmaku/modules/guess.lua": [
+      "414896d780ddec27d6ee2df6939749eb495471bc7393e8828adc43f301feff3f"
+    ],
+    "scripts/uosc_danmaku/modules/hash.lua": [
+      "bb0bd57db6d7fcedb5b15477b176821095d833f0ce42f87b844996224a7ec7fd"
+    ],
+    "scripts/uosc_danmaku/modules/md5.lua": [
+      "1fc84027d59550f82233bac765f203a2cf2b5691eb6437c514a57f4850891ddc"
+    ],
+    "scripts/uosc_danmaku/modules/menu.lua": [
+      "13f993747928894bd9e2a522f117a0110e823067144007dc30d8819ebe1a7eeb"
+    ],
+    "scripts/uosc_danmaku/modules/options.lua": [
+      "d7329f3d1f0fd23319918436b958b0c2bc4f4c16c0219b4624e107dc16f5e706"
+    ],
+    "scripts/uosc_danmaku/modules/parse.lua": [
+      "51fa722f96649bc5637303488c60b6bd109aa7b32ee076d38af8afd3b5b99422"
+    ],
+    "scripts/uosc_danmaku/modules/render.lua": [
+      "95559642aab6870160cffd59d9b17eb5b61adbc97ac5ffbbb454b0dba3fefc74"
+    ],
+    "scripts/uosc_danmaku/modules/update.lua": [
+      "f488320aa9be89052f5602611805f90fc409cf98346224582ed117510bd49118"
+    ],
+    "scripts/uosc_danmaku/modules/utils.lua": [
+      "8ed6d3ad52989f2aa1d81ef4cda1781cdaa5be4a3b82d3b30541d687fdf7259c"
+    ],
+    "shaders/Anime4K_AutoDownscalePre_x2.glsl": [
+      "9141668ced0b26512253e6396e805820716f35b57c92950d9da489f8b96a7ba4"
+    ],
+    "shaders/Anime4K_Clamp_Highlights.glsl": [
+      "8c5fb67c76bed3021f8a27b050c3b97a6ac1b284f9ce91c04189015c354c0217"
+    ],
+    "shaders/Anime4K_Denoise_Bilateral_Mode.glsl": [
+      "9067c543a5bd2220c28a05022085ef511402ccc114a76112eabe4e3f7d350285"
+    ],
+    "shaders/Anime4K_Restore_CNN_L.glsl": [
+      "bead2fca3a75eef0b8949d203ee3fcbcf8dfdb2bf3239580ec4c8eae80891f8b"
+    ],
+    "shaders/Anime4K_Restore_CNN_M.glsl": [
+      "dd515c307d97d8e5c809f263dd94174cc5667b8c1299082cdff14e6ddfc8d4bc"
+    ],
+    "shaders/Anime4K_Restore_CNN_S.glsl": [
+      "fca48f8322be4c7c5b14393a6eb6d733bbefffea0ca29694cb6c4b0335dad5ce"
+    ],
+    "shaders/Anime4K_Restore_CNN_Soft_L.glsl": [
+      "9551ef8042de7636bf0eb8ffd2867b7f9d9a36a23c17eb117750bec9d9ba5317"
+    ],
+    "shaders/Anime4K_Restore_CNN_Soft_M.glsl": [
+      "df1cdc360d6fbfd51b6d6deec99aefb747d0de72cc1c0ff271cd48758a6a0c5a"
+    ],
+    "shaders/Anime4K_Upscale_CNN_x2_M.glsl": [
+      "249dc3be467f556ed3361deea79f42bac1ae57456c22588c2cc3c2ee8808909c"
+    ],
+    "shaders/Anime4K_Upscale_CNN_x2_S.glsl": [
+      "90b65a4f36950852a34e5f12beb179fafed59fa8d911887e0f5f184337998edf"
+    ]
+  }
+}

@@ -94,9 +94,35 @@ jobs:
         Write-Host "当前北京时间: $dateString"
       shell: pwsh
 
+    - name: Fetch previous release manifest
+      id: previous
+      run: |
+        # 上一版 Release 的 fntv-manifest.json：它的 knownHashes 和 obsolete 并入本次清单，契约测试检查只增不减。
+        # 早于清单的 Release 没有这个资产，此时只用仓库里的 manifest-history.json。
+        $release = gh release view --repo "$env:GITHUB_REPOSITORY" --json tagName,assets | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0) { Write-Error "读取上一版 Release 失败"; exit 1 }
+        Write-Host "上一版 Release: $($release.tagName)"
+        $dir = Join-Path $env:RUNNER_TEMP "previous-manifest"
+        $path = Join-Path $dir "fntv-manifest.json"
+        if ($release.assets.name -contains "fntv-manifest.json") {
+          gh release download $release.tagName --repo "$env:GITHUB_REPOSITORY" --pattern fntv-manifest.json --dir $dir
+          if ($LASTEXITCODE -ne 0) { Write-Error "下载上一版清单失败"; exit 1 }
+          echo "MANIFEST=$path" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "上一版 Release 没有 fntv-manifest.json，只用 manifest-history.json"
+          echo "MANIFEST=" >> $env:GITHUB_OUTPUT
+        }
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: pwsh
+
     - name: Run MPV config build
       run: |
-        python run.py --log-level INFO --package-timestamp "${{ steps.date.outputs.DATE }}"
+        $previous = @()
+        if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
+        python run.py --log-level INFO --package-timestamp "${{ steps.date.outputs.DATE }}" @previous
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      shell: pwsh
       env:
         # 设置UTF-8编码以支持中文日志
         PYTHONIOENCODING: utf-8
@@ -128,7 +154,12 @@ jobs:
     - name: Contract test (fntv-manifest.json)
       run: |
         # 清单与 zip 内容一致、role 合法、客户端依赖的路径和 provides 齐全，archiveVersion 等于本次 tag；失败则不发版
-        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}"
+        # knownHashes 只增不减：manifest-history.json 和上一版清单里的每个哈希都还在
+        $previous = @()
+        if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
+        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}" @previous
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      shell: pwsh
       env:
         PYTHONIOENCODING: utf-8
 
@@ -335,7 +366,10 @@ jobs:
           - 📖 [使用文档](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/README.md)
           - 🐛 [问题反馈](${{ github.server_url }}/${{ github.repository }}/issues)
           - 🔄 [配置更新](${{ github.server_url }}/${{ github.repository }}/releases)
-        files: ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
+        # fntv-manifest.json 也单独上传（与 zip 根目录里的相同），供下一次构建并入历史哈希
+        files: |
+          ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
+          ${{ steps.config.outputs.OUTPUT_DIR }}/fntv-mpv-config/fntv-manifest.json
         fail_on_unmatched_files: true
         draft: false
         prerelease: false
