@@ -73,36 +73,6 @@ function mutils.skip_if_in(curr_pos, a, b, why)
     return false
 end
 
--- 判断当前位置是否在区间 [a,b] 内
-function mutils.if_in(curr_pos, a, b)
-    return curr_pos >= a and curr_pos <= b
-end
-
--- 在指定时间窗口内寻找符合时长条件的连续章节区间
-function mutils.find_sections_in_window(chapters, start_time, end_time, min_dur, max_dur)
-    local candidates = {}
-
-    for i = 1, #chapters do
-        local chapter = chapters[i]
-        -- 确保章节在指定时间窗口内
-        if chapter.time >= start_time and chapter.time <= end_time then
-            local next_chapter = chapters[i + 1]
-            if next_chapter then
-                local duration = next_chapter.time - chapter.time
-                if duration >= min_dur and duration <= max_dur then
-                    table.insert(candidates, {
-                        start_time = chapter.time,
-                        end_time = next_chapter.time,
-                        duration = duration
-                    })
-                end
-            end
-        end
-    end
-
-    return candidates
-end
-
 -- 提取 path 中的 id 以及原始 query string
 function mutils.extract_id_and_query(url)
     -- 提取 id （playvideo/后到 ? 前）
@@ -130,8 +100,8 @@ local function ensure_dir(dir)
     mp.command_native({ name = "subprocess", args = args, playback_only = false })
 end
 
--- 持久化配置
-function mutils.save_options()
+-- 持久化用户配置（整份写回 script-opts/<脚本名>.conf）
+function mutils.save_options(opts)
     ensure_dir(utils.split_path(conf_path))
 
     local f, err = io.open(conf_path, "w+")
@@ -140,24 +110,14 @@ function mutils.save_options()
         return
     end
 
-    -- 黑名单：这些key不应写入配置文件
-    local blacklist = {
-        ["manual_intro_start"] = true,
-        ["manual_intro_end"] = true,
-        ["manual_outro_start"] = true,
-        ["manual_outro_end"] = true,
-    }
-
     for k, v in pairs(opts) do
-        if not blacklist[k] then
-            local val
-            if type(v) == "boolean" then
-                val = v and "yes" or "no"
-            else
-                val = tostring(v)
-            end
-            f:write(string.format("%s=%s\n", k, val))
+        local val
+        if type(v) == "boolean" then
+            val = v and "yes" or "no"
+        else
+            val = tostring(v)
         end
+        f:write(string.format("%s=%s\n", k, val))
     end
 
     f:close()

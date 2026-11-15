@@ -24,20 +24,14 @@ SOFTWARE.
 GitHub: https://github.com/QiaoKes/fntv-mpv-config
 ]]
 
+local skip_window = require('./skip_window')
 
-local mp          = require "mp"
-local utils       = require "mp.utils"
-local msg         = require "mp.msg"
+-- 检测模式（定义在 skip_window）
+local DETECT_MODE = skip_window.MODE
 
--- 检测模式映射
-local DETECT_MODE = {
-    CHAPTER = 1, -- 通过章节检测片头片尾
-    MANUAL = 2,  -- 通过手动指定片头片尾
-    AUTO = 3,    -- 每段先通过章节检测，没有再用手动指定的时长
-}
-
--- 配置选项定义
-_G.opts           = {
+-- 用户配置：从 script-opts/smart_skip.conf 读取，菜单修改后整份写回。
+-- 每个文件的片头/片尾时长不在这里，见 main.lua 的文件状态。
+local opts = {
     -- 基础设置
     enabled = false,
     detect_mode = DETECT_MODE.AUTO, -- auto, chapter, manual
@@ -48,17 +42,11 @@ _G.opts           = {
     max_scan_window = 600,   -- 最大扫描窗口（10分钟）
     max_scan_percent = 15,   -- 视频长度百分比
 
-    -- 手动指定片头片尾时间, 从服务器获取，不允许在配置文件设置
-    manual_intro_start = 0,
-    manual_intro_end = 0,
-    manual_outro_start = 0,
-    manual_outro_end = 0,
-
     -- 快捷键快速跳过时长
     manual_skip_duration = 90,
 }
 
 return {
-    opts = _G.opts,
+    opts = opts,
     DETECT_MODE = DETECT_MODE,
 }
