@@ -32,7 +32,6 @@ local utils = require('mp.utils')
 local api = require('./api')
 local options = require('./options')
 require("./menu")
-local ask         = require('ask')
 local opts        = options.opts
 local DETECT_MODE = options.DETECT_MODE
 
@@ -85,14 +84,12 @@ local function detect_by_mode()
         return detect_by_chapters()
     elseif opts.detect_mode == DETECT_MODE.MANUAL then
         return detect_by_manual()
-    elseif opts.detect_mode == DETECT_MODE.AUTO then
+    else
+        -- 自动模式；未知值（如已删除的静音模式 4）也按自动模式处理
         local result = detect_by_chapters()
         if result then return result end
         result = detect_by_manual()
         if result then return result end
-        return nil
-    else
-        msg.error("未知的检测模式")
         return nil
     end
 end

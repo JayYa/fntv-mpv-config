@@ -40,7 +40,6 @@ local function mode_name(m)
     if m == DETECT_MODE.CHAPTER then return '章节模式' end
     if m == DETECT_MODE.MANUAL then return '手动模式' end
     if m == DETECT_MODE.AUTO then return '自动模式' end
-    if m == DETECT_MODE.SILENCE then return '静音检查模式' end
     return tostring(m)
 end
 
@@ -101,7 +100,6 @@ local Controls = {
         options = {
             { id = DETECT_MODE.AUTO, name = '自动模式', hint = '优先章节，无则使用手动模式' },
             { id = DETECT_MODE.CHAPTER, name = '章节模式', hint = '通过章节自动识别' },
-            -- { id = DETECT_MODE.SILENCE, name = '静音检查', hint = '通过识别静音区间自动跳过指定长度' },
             { id = DETECT_MODE.MANUAL, name = '手动模式', hint = '手动指定片头片尾长度' },
         },
         parse   = mutils.parse_integer,
@@ -215,25 +213,6 @@ local function build_items()
             selectable = true,
         })
     end
-
-    -- 静音检测参数设置
-    -- table.insert(items, { title = '— 静音检测参数设置 —', keep_open = true, selectable = false })
-
-    -- table.insert(items, {
-    --     title = string.format('静音检测阈值：%d', Controls.silence_db.get()),
-    --     hint = Controls.silence_db.hint,
-    --     value = { 'script-message-to', SCRIPT, 'menu:action', 'open_input', 'silence_db' },
-    --     keep_open = true,
-    --     selectable = true,
-    -- })
-
-    -- table.insert(items, {
-    --     title = string.format('静音持续时间：%s', tostring(Controls.silence_min_dur.get())),
-    --     hint = Controls.silence_min_dur.hint,
-    --     value = { 'script-message-to', SCRIPT, 'menu:action', 'open_input', 'silence_min_dur' },
-    --     keep_open = true,
-    --     selectable = true,
-    -- })
 
     -- 快捷时长
     table.insert(items,

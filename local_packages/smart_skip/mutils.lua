@@ -103,29 +103,6 @@ function mutils.find_sections_in_window(chapters, start_time, end_time, min_dur,
     return candidates
 end
 
-function mutils.af_add_noise(label, threshold, duration)
-    mp.commandv("af", "add",
-        ("@%s:lavfi=[silencedetect=noise=%sdB:d=%.3f]"):format(label, threshold, duration))
-end
-
-function mutils.af_rm(label) mp.commandv("af", "remove", ("@%s"):format(label)) end
-
-function mutils.af_meta(label) return ("af-metadata/%s"):format(label) end
-
--- 新增：视频黑帧检测
-function mutils.vf_add_blackdetect(label, d, pic_th, pix_th)
-    -- d: 最小黑帧持续时间（秒），比如 0.1
-    -- pic_th: 黑画面比例阈值（0~1），比如 0.98
-    -- pix_th: 像素黑阈值（0~1），比如 0.10 (对应 ~25/255)
-    local chain = ("@%s:lavfi=[blackdetect=d=%.3f:pic_th=%.3f:pix_th=%.3f]"):
-        format(label, d or 0.10, pic_th or 0.98, pix_th or 0.10)
-    mp.commandv("vf", "add", chain)
-end
-
-function mutils.vf_meta(label)
-    return ("vf-metadata/%s"):format(label)
-end
-
 -- 提取 path 中的 id 以及原始 query string
 function mutils.extract_id_and_query(url)
     -- 提取 id （playvideo/后到 ? 前）
