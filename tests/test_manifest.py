@@ -540,6 +540,28 @@ class TestPackagingProducesManifest(unittest.TestCase):
         })
         self.assertEqual(check_archive(zip_path, archive_version="fntv-mpv-v20261114_235959"), [])
 
+    def test_build_result_points_at_what_was_built(self):
+        result, zip_path = self.run_packaging()
+
+        self.assertEqual(result.timestamp, "20261114_235959")
+        self.assertEqual(result.archive_version, "fntv-mpv-v20261114_235959")
+        self.assertEqual(result.package_path, zip_path.resolve())
+        self.assertEqual(result.manifest_asset_path, (zip_path.parent / "fntv-manifest.json").resolve())
+        self.assertEqual(result.output_dir, (self.tmp / "out").resolve())
+        self.assertTrue((result.project_dir / "portable_config").is_dir())
+        self.assertEqual(result.dependencies, [
+            ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
+            ("smart_skip", "local"), ("thumbfast", "local"),
+        ])
+
+    def test_build_result_without_package_has_no_package_fields(self):
+        result, _ = self.run_packaging(create_package=False)
+
+        self.assertIsNotNone(result)
+        self.assertIsNone(result.package_path)
+        self.assertIsNone(result.archive_version)
+        self.assertIsNone(result.timestamp)
+
     def test_manifest_asset_sits_next_to_the_zip(self):
         # Release 把 <输出目录>/fntv-manifest.json 作为单独资产上传，路径不能依赖项目名子目录
         ok, zip_path = self.run_packaging()

@@ -5,16 +5,19 @@
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import List, Optional
 
 from .config_manager import ConfigManager, ConfigError
 from .download_manager import DownloadManager, DownloadError
 from .extract_manager import ExtractManager, ExtractError
-from .install_manager import InstallManager, InstallError, validate_package_timestamp
+from .install_manager import (InstallManager, InstallError, current_package_timestamp,
+                              validate_package_timestamp)
 from .log_manager import LogManager
 from .manifest import (archive_version_for, build_manifest, check_archive, load_history,
                        write_manifest)
+from .release import BuildResult
 
 # 提交在仓库里的历史哈希
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
@@ -52,7 +55,7 @@ class MPVConfigManager:
             cleanup: bool = True,
             package_timestamp: Optional[str] = None,
             history_path: Optional[str] = None,
-            previous_manifest_path: Optional[str] = None) -> bool:
+            previous_manifest_path: Optional[str] = None) -> Optional[BuildResult]:
         """
         运行主流程
         
@@ -62,12 +65,12 @@ class MPVConfigManager:
             skip_install: 跳过安装步骤
             create_package: 是否创建安装包
             cleanup: 是否清理临时文件
-            package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用本机当前时间
+            package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用当前北京时间
             history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
             previous_manifest_path: 上一版 Release 的 fntv-manifest.json，None 时只用历史哈希
 
         Returns:
-            是否成功
+            成功时返回构建结果，失败时返回 None
         """
         try:
             self.logger.info("开始MPV配置管理流程")
@@ -127,12 +130,19 @@ class MPVConfigManager:
                 except Exception as e:
                     self.logger.error(f"处理依赖项 {dep_name} 失败: {e}")
                     if not self._should_continue_on_error():
-                        return False
-            
+                        return None
+
+            result = BuildResult(
+                output_dir=self.install_manager.base_output_dir.resolve(),
+                project_dir=self.install_manager.output_dir.resolve(),
+                dependencies=[(str(dep.get('name', name)), str(dep.get('version', '')))
+                              for name, dep in target_dependencies.items()],
+            )
+
             # 生成清单、创建安装包，然后对安装包跑契约测试
             if create_package and not skip_install and self.install_manager:
                 if package_timestamp is None:
-                    package_timestamp = self.install_manager._get_timestamp()
+                    package_timestamp = current_package_timestamp()
                 archive_version = archive_version_for(package_timestamp)
                 history = load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH)
                 previous_manifest = None
@@ -160,23 +170,31 @@ class MPVConfigManager:
                 if errors:
                     for error in errors:
                         self.logger.error(f"契约测试失败: {error}")
-                    return False
+                    return None
                 self.logger.info("契约测试通过")
 
                 # Release 单独上传的清单资产：放在 zip 旁边，路径与项目名子目录无关
                 asset_path = write_manifest(package_path.parent, manifest)
                 self.logger.info(f"清单资产已写入: {asset_path}")
-            
+
+                result = replace(
+                    result,
+                    timestamp=package_timestamp,
+                    archive_version=archive_version,
+                    package_path=package_path.resolve(),
+                    manifest_asset_path=asset_path.resolve(),
+                )
+
             # 清理临时文件
             if cleanup:
                 self._cleanup()
-            
+
             self.logger.info("MPV配置管理流程完成")
-            return True
-            
+            return result
+
         except Exception as e:
             self.logger.error(f"运行失败: {e}")
-            return False
+            return None
     
     def _initialize_managers(self):
         """初始化各个管理器"""
@@ -517,7 +535,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
         '--package-timestamp',
         type=_package_timestamp_arg,
         help='安装包文件名 mpv-package-<时间戳>.zip 中的时间戳，格式 yyyyMMdd_HHmmss；'
-             'CI 传入 Release tag 的时间，不传则用本机当前时间'
+             '不传则用当前北京时间'
     )
 
     parser.add_argument(

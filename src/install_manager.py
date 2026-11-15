@@ -4,7 +4,7 @@
 """
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import fnmatch
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -17,6 +17,14 @@ class InstallError(Exception):
 
 
 PACKAGE_TIMESTAMP_PATTERN = re.compile(r"\d{8}_\d{6}")
+
+# 构建时间戳一律用北京时间。中国没有夏令时，固定 UTC+8 即可，不依赖 Windows 上缺失的时区库
+BEIJING = timezone(timedelta(hours=8), "Asia/Shanghai")
+
+
+def current_package_timestamp() -> str:
+    """当前北京时间的安装包时间戳（yyyyMMdd_HHmmss）"""
+    return datetime.now(BEIJING).strftime("%Y%m%d_%H%M%S")
 
 
 def validate_package_timestamp(timestamp: str) -> str:
@@ -340,8 +348,8 @@ class InstallManager:
         创建最终的安装包
 
         Args:
-            timestamp: 资产名里的时间戳（yyyyMMdd_HHmmss）。CI 传入 Release tag 的时间，
-                       使资产名与 tag 一致；None 时使用本机当前时间
+            timestamp: 资产名里的时间戳（yyyyMMdd_HHmmss），与归档版本同源；
+                       None 时使用当前北京时间
 
         Returns:
             安装包路径
@@ -349,7 +357,7 @@ class InstallManager:
         self.logger.info("创建安装包")
 
         if timestamp is None:
-            timestamp = self._get_timestamp()
+            timestamp = current_package_timestamp()
         else:
             validate_package_timestamp(timestamp)
         package_name = f"mpv-package-{timestamp}"
@@ -371,10 +379,6 @@ class InstallManager:
             
         except Exception as e:
             raise InstallError(f"创建安装包失败: {e}")
-    
-    def _get_timestamp(self) -> str:
-        """获取本机当前时间的时间戳（未传入 --package-timestamp 时的默认值）"""
-        return datetime.now().strftime("%Y%m%d_%H%M%S")
     
     def cleanup_output(self):
         """清理输出目录"""
