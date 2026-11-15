@@ -12,7 +12,10 @@ tests/
 ├── test_local_core.py   # 本地包功能核心测试
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
+├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ```
+
+测试都不访问网络，GitHub API 调用用 `unittest.mock` 替换。
 
 `test_manifest.py` 覆盖清单生成（`build_manifest`）、对 zip 的契约测试（`check_archive` 和根目录的 `check_archive.py`），以及用本地假插件跑完整打包流程后 zip 带清单、契约失败时打包失败。
 
@@ -23,10 +26,13 @@ tests/
   - `test_load_config`: 测试配置文件加载
   - `test_config_validation`: 测试配置验证
   - `test_get_enabled_dependencies`: 测试获取已启用依赖项
+  - `test_output_dir_*`: 测试输出目录优先级（`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`），空环境变量视为未设置，覆盖值不写回配置文件
 
 - **TestDownloadManager**: 下载管理器测试
   - `test_init`: 测试下载管理器初始化
   - `test_parse_github_url`: 测试GitHub URL解析
+  - `test_github_api_uses_token_when_set`: 设了 `GITHUB_TOKEN` 时 API 请求带认证头
+  - `test_github_api_anonymous_without_token`: 没设时匿名请求
 
 - **TestExtractManager**: 解压管理器测试
   - `test_get_format`: 测试文件格式识别
@@ -40,7 +46,7 @@ tests/
   - `test_is_local_file_detection`: 测试本地文件检测
     - 测试 local_path 配置检测
     - 测试 url 为本地路径的检测
-    - 测试网络URL的排除
+    - 测试网络URL（http/https）的排除
   - `test_local_directory_handling`: 测试本地文件夹处理
     - 测试文件夹复制到临时目录
     - 测试文件结构保持完整
@@ -60,6 +66,22 @@ tests/
     - 测试从根目录复制
     - 测试多种文件类型过滤
     - 测试子目录结构保持
+- **TestCreatePackageName**: 安装包命名测试
+  - 传入时间戳时 zip 名为 `mpv-package-<时间戳>.zip`，不传时用本机当前时间，格式错误的时间戳被拒绝
+- **TestPackageTimestampCli**: `--package-timestamp` 参数的解析和校验
+- **TestRepositoryCustomConfig**: 用仓库里真实的 `custom_config` 测试
+  - `custom_config/uosc_danmaku/` 下的文件装进 `portable_config/`
+  - `custom_config` 根目录下没有散文件
+
+#### 4. test_manifest.py - 归档清单测试
+- **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
+- **TestCheckArchive**: 对 zip 的每项契约检查，以及 `check_archive.py` 的退出码和 `--manifest-asset`
+- **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
+- **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
+- **TestPackagingProducesManifest**: 用本地假插件跑完整打包流程
+
+#### 5. test_package_defaults.py - 发版输入测试
+- **TestPackageDefaults**: 固定 `mpv`、`uosc`、`uosc_danmaku` 的版本和下载地址；`danmaku-history.json` 只含 `{"show_danmaku": true}`。升级依赖项时要同时改这里的期望值
 
 ## 新增功能测试
 
@@ -68,7 +90,7 @@ tests/
 1. **本地文件检测** (test_is_local_file_detection)
    - ✅ 检测 `local_path` 配置项
    - ✅ 检测 `url` 为本地路径
-   - ✅ 排除网络URL (http/https/ftp)
+   - ✅ 排除网络URL (http/https)
    - ✅ 处理空配置
 
 2. **本地文件夹处理** (test_local_directory_handling)
@@ -114,6 +136,12 @@ python tests/test_local_core.py
 
 # 安装管理器功能测试
 python tests/test_install_core.py
+
+# 归档清单测试
+python tests/test_manifest.py
+
+# 发版输入测试
+python tests/test_package_defaults.py
 ```
 
 ### 添加新测试
@@ -144,11 +172,12 @@ test_default_installation (tests.test_install_core.TestInstallManagerCore)
 测试默认安装功能 ... ok
 
 ----------------------------------------------------------------------
-Ran 13 tests in 0.057s
+Ran 60 tests in 2.585s
 
 OK
 ==================================================
-✅ 所有测试通过!
+🎉 所有测试通过!
+✅ 运行了 60 个测试
 ```
 
 ## 测试覆盖的修改内容
