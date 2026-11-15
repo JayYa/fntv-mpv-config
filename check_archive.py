@@ -10,12 +10,11 @@
 import argparse
 import json
 import sys
-import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from manifest import check_archive, load_history  # noqa: E402
+from manifest import check_archive, check_manifest_asset, load_history  # noqa: E402
 
 
 def main() -> int:
@@ -38,13 +37,7 @@ def main() -> int:
                            history=load_history(Path(args.history)),
                            previous_manifest=previous)
     if args.manifest_asset:
-        asset = Path(args.manifest_asset)
-        if not asset.is_file():
-            errors.append(f"Release 要上传的 fntv-manifest.json 不存在: {asset}")
-        else:
-            with zipfile.ZipFile(args.zip_path) as z:
-                if asset.read_bytes() != z.read("fntv-manifest.json"):
-                    errors.append(f"Release 要上传的 {asset} 与 zip 里的 fntv-manifest.json 不同")
+        errors += check_manifest_asset(Path(args.zip_path), Path(args.manifest_asset))
     if errors:
         print(f"契约测试失败（{len(errors)} 项）:")
         for error in errors:
