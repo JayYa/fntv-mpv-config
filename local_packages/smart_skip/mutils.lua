@@ -118,10 +118,21 @@ function mutils.extract_origin(url)
     return url:match("^(https?://[^/%?#]+)")
 end
 
+-- 目录不存在时创建；Windows 没有 mkdir -p，改走 cmd 的 mkdir（会自动建中间目录）
+local function ensure_dir(dir)
+    if utils.file_info(dir) then return end
+    local args
+    if package.config:sub(1, 1) == "\\" then
+        args = { "cmd", "/d", "/c", "mkdir", (dir:gsub("/", "\\")) }
+    else
+        args = { "mkdir", "-p", dir }
+    end
+    mp.command_native({ name = "subprocess", args = args, playback_only = false })
+end
+
 -- 持久化配置
 function mutils.save_options()
-    local dir = utils.split_path(conf_path)
-    utils.subprocess({ args = { "mkdir", "-p", dir } })
+    ensure_dir(utils.split_path(conf_path))
 
     local f, err = io.open(conf_path, "w+")
     if not f then

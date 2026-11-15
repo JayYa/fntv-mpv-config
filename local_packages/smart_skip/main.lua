@@ -99,7 +99,7 @@ local function load_server_config()
     local play_url = mp.get_property("path")
     api.get_skip_time(play_url, function(resp, err)
         if err or not resp or resp.code ~= 0 then
-            msg.error("获取服务器跳过时间点失败: " .. err)
+            msg.error("获取服务器跳过时间点失败: " .. tostring(err or (resp and resp.code)))
             return
         end
         local data = resp.data
