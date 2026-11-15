@@ -28,14 +28,12 @@ local mp          = require('mp')
 local msg         = require('mp.msg')
 local utils       = require('mp.utils')
 local mutils      = require('./mutils')
-local skip_window = require('./skip_window')
 
 local options_mod = require('./options')
 local opts        = options_mod.opts
 local DETECT_MODE = options_mod.DETECT_MODE
 local SCRIPT      = mp.get_script_name()
 
--- main.lua 在 init 时传入的当前文件会话：lens() / set_lens(lens) / refresh()
 local session     = nil
 
 -- ========= 工具 =========
@@ -48,14 +46,6 @@ end
 
 local function bool_sign(b) return b and '✔' or 'X' end
 
--- 把一次编辑结果交给会话；不合规时返回 false 和原因
-local function commit_edit(new_lens, reason)
-    if not new_lens then return false, reason end
-    session.set_lens(new_lens)
-    return true
-end
-
--- 片头/片尾时长输入框共用
 local function length_control(kind, title)
     return {
         type  = 'number',
@@ -63,9 +53,7 @@ local function length_control(kind, title)
         hint  = '输入整数（秒）后回车',
         parse = mutils.parse_integer,
         get   = function() return session.lens()[kind] end,
-        apply = function(n)
-            return commit_edit(skip_window.edit(session.lens(), mutils.dur(), kind, n))
-        end,
+        apply = function(n) return session.edit(kind, n) end,
         after = function(n)
             msg.info(title .. ' => ' .. n .. ' 秒')
         end,
@@ -264,7 +252,7 @@ local function on_action(op, id, value)
     end
 
     if op == 'set_skip_time' and (id == 'intro' or id == 'outro') then
-        local ok, reason = commit_edit(skip_window.edit_at(session.lens(), mutils.dur(), id, mutils.timepos()))
+        local ok, reason = session.edit_at(id, mutils.timepos())
         if ok then
             Controls[id].after(session.lens()[id])
         else
@@ -274,7 +262,7 @@ local function on_action(op, id, value)
     end
 
     if op == 'clean_skip_time' then
-        session.set_lens({ intro = 0, outro = 0 })
+        session.clear()
         return open_main_menu()
     end
 
@@ -303,21 +291,18 @@ end
 
 local M = {}
 
--- 由 main.lua 调用一次：接上当前文件会话并注册菜单相关的消息与按钮
 function M.init(s)
     session = s
 
     mp.register_script_message('menu:action', on_action)
     mp.register_script_message('menu:input', on_input)
 
-    -- 顶部按钮（uosc）
     mp.commandv('script-message-to', 'uosc', 'set-button', 'skip_cfg_btn', utils.format_json({
         icon    = 'settings',
         tooltip = '跳过片头片尾设置',
         command = 'script-message open-skip-menu',
     }))
 
-    -- 打开菜单入口（供外部/按钮调用）
     mp.register_script_message('open-skip-menu', open_main_menu)
 end
 

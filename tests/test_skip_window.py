@@ -1,9 +1,3 @@
-"""smart_skip 的跳过窗口 module（skip_window.lua）
-
-用 lupa 内嵌的 Lua 5.1 加载，和 mpv 的 LuaJIT 同一套语义；
-能在没有 mp 的运行时里加载，本身就证明它不依赖 mpv。
-"""
-
 import unittest
 from pathlib import Path
 
@@ -30,7 +24,6 @@ class SkipWindowTestCase(unittest.TestCase):
         return self.lua.table_from(value, recursive=True)
 
     def to_py(self, value):
-        """Lua 表转 Python：数组表转 list，其它转 dict，nil 转 None"""
         if value is None or not hasattr(value, "items"):
             return value
         items = dict(value.items())
@@ -80,7 +73,6 @@ class TestManualWindows(SkipWindowTestCase):
         self.assertEqual(self.windows(0, lens), {})
 
 
-# 24 分钟一集：冷开场 0–30，片头 30–120，正片，片尾 1300–1390，彩蛋 1390–结尾
 EPISODE = 1440
 EPISODE_CHAPTERS = [
     {"title": "冷开场", "time": 0},
@@ -110,7 +102,7 @@ class TestAutoWindows(SkipWindowTestCase):
         )
 
     def test_auto_fills_a_segment_without_chapter_from_its_length(self):
-        only_op = EPISODE_CHAPTERS[:3]  # 片尾没有章节
+        only_op = EPISODE_CHAPTERS[:3]
         self.assertEqual(
             self.windows(EPISODE, {"intro": 60, "outro": 100}, mode="AUTO", chapters=only_op),
             {"intro": [30, 120], "outro": [1340, 1440]},
@@ -159,11 +151,9 @@ class TestEdits(SkipWindowTestCase):
 
     def test_marking_the_current_position_sets_whole_second_lengths(self):
         self.assertEqual(self.edit_at(self.NO_DATA, EPISODE, "intro", 95.7), ({"intro": 95, "outro": 0}, None))
-        # 片尾从 1340.4 秒开始 → 离结尾 99.6 秒，取整为 99
         self.assertEqual(self.edit_at(self.NO_DATA, EPISODE, "outro", 1340.4), ({"intro": 0, "outro": 99}, None))
 
     def test_editing_drops_a_server_segment_that_breaks_the_rules(self):
-        # 服务器的片尾 800 秒超过一半，本来就不生效；改片头时不该被它挡住，也不该再上报它
         self.assertEqual(self.edit({"intro": 0, "outro": 800}, EPISODE, "intro", 90), ({"intro": 90, "outro": 0}, None))
 
     def test_marking_the_current_position_is_validated_too(self):

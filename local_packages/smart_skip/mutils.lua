@@ -100,7 +100,6 @@ local function ensure_dir(dir)
     mp.command_native({ name = "subprocess", args = args, playback_only = false })
 end
 
--- 持久化用户配置（整份写回 script-opts/<脚本名>.conf）
 function mutils.save_options(opts)
     ensure_dir(utils.split_path(conf_path))
 

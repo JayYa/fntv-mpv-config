@@ -24,9 +24,6 @@ SOFTWARE.
 GitHub: https://github.com/QiaoKes/fntv-mpv-config
 ]]
 
--- mpv 这一侧：文件生命周期、属性监听、执行跳过。
--- 跳过窗口怎么算、编辑是否合规都在 skip_window.lua。
-
 local mp = require('mp')
 local msg = require('mp.msg')
 local opt = require('mp.options')
@@ -40,12 +37,6 @@ local opts = options.opts
 
 local LABELS = { intro = "⏭️ 正在跳过片头...", outro = "⏭️ 正在跳过片尾..." }
 
--- 当前文件的跳过状态；每次 file-loaded 新建，end-file 清空
---   path     播放地址
---   lens     片头/片尾时长 { intro, outro }
---   edited   用户本文件内改过时长（之后晚到的服务器数据不再覆盖）
---   windows  缓存的跳过窗口 { intro = {a, b}, outro = {a, b} }
---   skipped  本文件已自动跳过的段（改时长不清空：每段每个文件只自动跳一次）
 local current = nil
 
 local function recompute(state)
@@ -64,13 +55,12 @@ local function on_file_loaded()
         lens = { intro = 0, outro = 0 },
         edited = false,
         windows = {},
-        skipped = {},
+        auto_skipped_this_file = {},
     }
     current = state
     recompute(state)
 
     api.get_skip_time(state.path, function(resp, err)
-        -- 已换文件，或用户已在本文件里改过时长：丢弃晚到的数据
         if current ~= state or state.edited then return end
         if err or not resp or resp.code ~= 0 then
             msg.error("获取服务器片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
@@ -91,16 +81,15 @@ local function on_time_pos(_, pos)
     if not pos or not state or not opts.enabled then return end
     for _, kind in ipairs({ 'intro', 'outro' }) do
         local w = state.windows[kind]
-        if w and not state.skipped[kind] then
-            state.skipped[kind] = mutils.skip_if_in(pos, w[1], w[2], LABELS[kind])
-            if state.skipped[kind] then
+        if w and not state.auto_skipped_this_file[kind] then
+            state.auto_skipped_this_file[kind] = mutils.skip_if_in(pos, w[1], w[2], LABELS[kind])
+            if state.auto_skipped_this_file[kind] then
                 msg.info(string.format("跳过%s, mode=%s args:%s", kind, tostring(opts.detect_mode), utils.to_string(w)))
             end
         end
     end
 end
 
--- duration、章节晚到（网络流常见）或变化时重算
 local function on_media_changed()
     if current then recompute(current) end
 end
@@ -117,20 +106,31 @@ local function manual_skip_forward()
     mutils.show_message(string.format('⏩ 快速跳过 %d 秒', duration), 2)
 end
 
--- 交给菜单的当前文件会话
+local function adopt_user_lens(lens, reason)
+    if not lens then return false, reason end
+    if not current then return false, "没有正在播放的文件" end
+    current.lens = lens
+    current.edited = true
+    recompute(current)
+    api.set_skip_time(current.path, lens.intro, lens.outro)
+    return true
+end
+
+local function current_lens()
+    return current and current.lens or { intro = 0, outro = 0 }
+end
+
 local session = {
-    lens = function()
-        return current and current.lens or { intro = 0, outro = 0 }
+    lens = current_lens,
+    edit = function(kind, len)
+        return adopt_user_lens(skip_window.edit(current_lens(), mutils.dur(), kind, len))
     end,
-    -- 采用用户编辑后的时长（已通过 skip_window.edit 校验），并上报服务器
-    set_lens = function(lens)
-        if not current then return end
-        current.lens = lens
-        current.edited = true
-        recompute(current)
-        api.set_skip_time(current.path, lens.intro, lens.outro)
+    edit_at = function(kind, pos)
+        return adopt_user_lens(skip_window.edit_at(current_lens(), mutils.dur(), kind, pos))
     end,
-    -- 检测模式等配置变了
+    clear = function()
+        return adopt_user_lens({ intro = 0, outro = 0 })
+    end,
     refresh = on_media_changed,
 }
 
@@ -139,7 +139,6 @@ local function init()
 
     mp.register_event("file-loaded", on_file_loaded)
     mp.register_event("end-file", on_end_file)
-    -- 只注册一次，回调里看 current，换文件不会叠加监听
     mp.observe_property("time-pos", "number", on_time_pos)
     mp.observe_property("duration", "number", on_media_changed)
     mp.observe_property("chapter-list", "native", on_media_changed)
