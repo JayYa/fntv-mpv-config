@@ -59,6 +59,7 @@ fntv-mpv-config/
 ├── local_packages/        # 本地插件源码（smart_skip、thumbfast）
 ├── types/                 # mpv Lua API 类型声明，供编辑器补全，不进安装包
 ├── tests/                 # 测试目录
+├── templates/             # Release 说明模板（release-notes.md）
 ├── .github/workflows/     # GitHub Actions工作流
 ├── package_cfg.json       # 主配置文件
 ├── manifest-history.json  # 历史归档的文件哈希
@@ -152,8 +153,11 @@ python run.py --skip-install
 # 安装但不生成清单、不打包
 python run.py --skip-package
 
-# 指定安装包和 Release tag 里的时间（yyyyMMdd_HHmmss），CI 用；不传时用本机当前时间
+# 指定安装包和 Release tag 里的时间（yyyyMMdd_HHmmss）；不传时用当前北京时间
 python run.py --package-timestamp 20261115_120000
+
+# 打包成功后写出构建结果 JSON，同目录生成 release-notes.md（CI 用；预览说明也可用）
+python run.py --result-file ./build/build-result.json
 
 # 并入上一版 Release 的清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
 python run.py --previous-manifest ./fntv-manifest.json
@@ -509,9 +513,11 @@ custom_config/
 工作流文件位于 `.github/workflows/daily-build.yml`，主要特性：
 
 - 使用Windows环境进行构建，产出的同一个 zip 供三个平台使用
+- 构建前先跑 `run_tests.py`，失败不构建
 - 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
-- 用北京时间生成时间戳，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
-- 打包后用 `check_archive.py` 再跑一次契约测试，失败不发版
+- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
+- 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
+- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：启用的插件、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
 - 自动上传构建产物，保留 30 天
 
 ## 归档清单 fntv-manifest.json
@@ -538,7 +544,7 @@ profile=fntv-defaults
 
 ### 契约测试
 
-打包后自动跑契约测试（`run.py` 内部一次，workflow 里再用 `check_archive.py` 带 tag 跑一次）：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减。任何一条失败都不会发版。手工检查一个 zip：
+打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip：
 
 ```bash
 python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json]
