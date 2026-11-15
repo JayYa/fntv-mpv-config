@@ -79,7 +79,9 @@ jobs:
         echo "TEMP_DIR=$tempDirResolved" >> $env:GITHUB_OUTPUT
         echo "OUTPUT_DIR_RAW=$outputDir" >> $env:GITHUB_OUTPUT
         echo "TEMP_DIR_RAW=$tempDir" >> $env:GITHUB_OUTPUT
-        
+        # run.py 把安装内容放在 <输出目录>/<package_cfg.json 的 name>/ 下
+        echo "PROJECT_NAME=$($config.name)" >> $env:GITHUB_OUTPUT
+
         Write-Host "最终输出目录: $outputDirResolved"
         Write-Host "最终临时目录: $tempDirResolved"
       shell: pwsh
@@ -202,21 +204,20 @@ jobs:
         
         # 使用动态输出目录
         $configOutputDir = "${{ steps.config.outputs.OUTPUT_DIR }}"
-        $targetDir = Join-Path $configOutputDir "fntv-mpv-config"
-        
+        $projectName = "${{ steps.config.outputs.PROJECT_NAME }}"
+        $targetDir = Join-Path $configOutputDir $projectName
+
         Write-Host "检查目录: $targetDir"
-        
-        # 检查输出目录是否存在
-        if (Test-Path $targetDir) {
-          $outputDir = $targetDir
-          Write-Host "找到输出目录: $outputDir"
-        } else {
-          Write-Host "输出目录不存在: $targetDir，使用默认结构"
-          $outputDir = $null
+
+        # 构建成功后这个目录一定存在；不存在说明路径算错了，不能拿预设结构顶替
+        if (-not (Test-Path $targetDir)) {
+          Write-Error "输出目录不存在: $targetDir"
+          exit 1
         }
-        
+        $outputDir = $targetDir
+
         $structure = @()
-        $structure += "fntv-mpv-config/"
+        $structure += "$projectName/"
         
         # 定义递归函数（在全局作用域）
         function Add-DirectoryStructure {
@@ -278,30 +279,11 @@ jobs:
           return $result
         }
         
-        if ($outputDir -and (Test-Path $outputDir)) {
-          Write-Host "扫描目录: $outputDir"
-          # 扫描输出目录，深度3层
-          $dirStructure = Add-DirectoryStructure -Path $outputDir -MaxDepth 3
-          $structure += $dirStructure
-          Write-Host "扫描到 $($dirStructure.Count) 个项目"
-        } else {
-          # 预设结构（3层深度示例）
-          $structure += "├── mpv.exe                   # MPV播放器主程序"
-          $structure += "├── mpv.com                   # MPV命令行版本"
-          $structure += "├── portable_config/          # 便携式配置目录"
-          $structure += "│   ├── input.conf            # 快捷键配置"
-          $structure += "│   ├── mpv.conf              # MPV主配置"
-          $structure += "│   ├── scripts/              # 插件脚本目录"
-          $structure += "│   │   ├── uosc/             # uosc插件"
-          $structure += "│   │   └── uosc_danmaku/     # 弹幕插件"
-          $structure += "│   ├── script-opts/          # 插件配置目录"
-          $structure += "│   ├── fonts/                # 字体文件目录"
-          $structure += "│   ├── shaders/              # 着色器目录"
-          $structure += "│   └── cache/                # 缓存目录"
-          $structure += "├── mpv/                      # MPV配置目录"
-          $structure += "│   └── fonts.conf            # 字体配置"
-          $structure += "└── d3dcompiler_43.dll        # 依赖库"
-        }
+        Write-Host "扫描目录: $outputDir"
+        # 扫描输出目录，深度3层
+        $dirStructure = Add-DirectoryStructure -Path $outputDir -MaxDepth 3
+        $structure += $dirStructure
+        Write-Host "扫描到 $($dirStructure.Count) 个项目"
         
         # 将目录结构转换为多行字符串
         $structureText = $structure -join "`n"
