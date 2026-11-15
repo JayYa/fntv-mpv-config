@@ -15,8 +15,8 @@ from .extract_manager import ExtractManager, ExtractError
 from .install_manager import (InstallManager, InstallError, current_package_timestamp,
                               validate_package_timestamp)
 from .log_manager import LogManager
-from .manifest import (archive_version_for, build_manifest, check_archive, load_history,
-                       write_manifest)
+from .manifest import (archive_version_for, build_manifest, check_archive,
+                       check_manifest_asset, load_history, write_manifest)
 from .release import BuildResult
 
 # 提交在仓库里的历史哈希
@@ -165,17 +165,18 @@ class MPVConfigManager:
                 package_path = self.install_manager.create_package(package_timestamp)
                 self.logger.info(f"安装包已创建: {package_path}")
 
+                # Release 单独上传的清单资产：放在 zip 旁边，路径与项目名子目录无关
+                asset_path = write_manifest(package_path.parent, manifest)
+                self.logger.info(f"清单资产已写入: {asset_path}")
+
                 errors = check_archive(package_path, archive_version=archive_version,
                                        history=history, previous_manifest=previous_manifest)
+                errors += check_manifest_asset(package_path, asset_path)
                 if errors:
                     for error in errors:
                         self.logger.error(f"契约测试失败: {error}")
                     return None
                 self.logger.info("契约测试通过")
-
-                # Release 单独上传的清单资产：放在 zip 旁边，路径与项目名子目录无关
-                asset_path = write_manifest(package_path.parent, manifest)
-                self.logger.info(f"清单资产已写入: {asset_path}")
 
                 result = replace(
                     result,

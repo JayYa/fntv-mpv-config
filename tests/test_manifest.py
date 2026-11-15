@@ -11,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from manifest import ManifestError, build_manifest, check_archive, history_from_archives, load_history
+from manifest import (ManifestError, build_manifest, check_archive, check_manifest_asset,
+                      history_from_archives, load_history)
 
 
 # sha256 的已知值（独立来源：FIPS 180-2 附录 B.1 的 "abc"，以及空串）
@@ -191,6 +192,19 @@ class TestCheckArchive(unittest.TestCase):
         self.assertNotEqual(missing.returncode, 0)
         self.assertNotEqual(different.returncode, 0)
         self.assertIn("fntv-manifest.json", different.stdout)
+
+    def test_manifest_asset_check(self):
+        zip_path = self.make_zip()
+        asset = self.tmp / "fntv-manifest.json"
+        with zipfile.ZipFile(zip_path) as z:
+            asset.write_bytes(z.read("fntv-manifest.json"))
+        self.assertEqual(check_manifest_asset(zip_path, asset), [])
+
+        asset.write_bytes(asset.read_bytes() + b"\n")
+        self.assertEqual(len(check_manifest_asset(zip_path, asset)), 1)
+        self.assertEqual(len(check_manifest_asset(zip_path, self.tmp / "nowhere.json")), 1)
+        no_manifest = self.make_zip(include_manifest=False)
+        self.assertIn("缺少", check_manifest_asset(no_manifest, asset)[0])
 
     def test_consistent_archive_passes(self):
         zip_path = self.make_zip()
