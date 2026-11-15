@@ -13,6 +13,7 @@ tests/
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
+├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
 ```
 
 测试都不访问网络，GitHub API 调用用 `unittest.mock` 替换。
@@ -82,6 +83,12 @@ tests/
 
 #### 5. test_package_defaults.py - 发版输入测试
 - **TestPackageDefaults**: 固定 `mpv`、`uosc`、`uosc_danmaku` 的版本和下载地址；`danmaku-history.json` 只含 `{"show_danmaku": true}`。升级依赖项时要同时改这里的期望值
+
+#### 6. test_skip_window.py - 跳过窗口测试
+用 `lupa` 内嵌的 Lua 5.1 加载 `local_packages/smart_skip/skip_window.lua`，不需要装 Lua 或 mpv。
+- **TestManualWindows**: 服务器的片头/片尾时长换成区间，片尾超过一半、片头与片尾重叠、时长未知时丢弃
+- **TestChapterWindows** / **TestAutoWindows**: 章节检测；自动模式每段先取章节，没有再取时长；已删除的静音模式按自动模式处理
+- **TestEdits**: 菜单里输入时长和「设为当前位置」的校验与换算
 
 ## 新增功能测试
 

@@ -24,27 +24,14 @@ SOFTWARE.
 GitHub: https://github.com/QiaoKes/fntv-mpv-config
 ]]
 
+local skip_window = require('./skip_window')
 
-local mp          = require "mp"
-local utils       = require "mp.utils"
-local msg         = require "mp.msg"
+local DETECT_MODE = skip_window.MODE
 
--- 检测模式映射
-local DETECT_MODE = {
-    CHAPTER = 1, -- 通过章节检测片头片尾
-    MANUAL = 2,  -- 通过手动指定片头片尾
-    AUTO = 3,    -- 先通过章节检测，再通过手动指定检测，再通过静音检测
-    SILENCE = 4, -- 静音检测模式
-}
-
-local L_SI_LABLE  = "ssi_smart_skip"
-local L_BLK_LABEL = "smart_skip_blkd"
-
--- 配置选项定义
-_G.opts           = {
+local opts = {
     -- 基础设置
     enabled = false,
-    detect_mode = DETECT_MODE.AUTO, -- auto, chapter, manual, silence
+    detect_mode = DETECT_MODE.AUTO,
 
     -- 章节检测参数
     min_skip_duration = 10,  -- 最短片头/片尾长度s
@@ -52,26 +39,10 @@ _G.opts           = {
     max_scan_window = 600,   -- 最大扫描窗口（10分钟）
     max_scan_percent = 15,   -- 视频长度百分比
 
-    -- 手动指定片头片尾时间, 从服务器获取，不允许在配置文件设置
-    manual_intro_start = 0,
-    manual_intro_end = 0,
-    manual_outro_start = 0,
-    manual_outro_end = 0,
-
-    -- 静音检测模式参数
-    silence_threshold = -10,    -- 静音检测阈值
-    silence_min_duration = 0.7, -- 静音持续最短时间
-    silence_skip_interval = 2,  -- 静音事件连续触发间隔
-    silence_event_check_timeout = 15, -- 跳过事件确认超时
-    silence_enevt_timeout_default = false, -- 跳过事件确认超时默认行为: 不跳
-
-    -- 手动/静音检测触发跳过时长
     manual_skip_duration = 90,
 }
 
 return {
-    opts = _G.opts,
+    opts = opts,
     DETECT_MODE = DETECT_MODE,
-    L_SI_LABLE = L_SI_LABLE,
-    L_BLK_LABEL = L_BLK_LABEL,
 }
