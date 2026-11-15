@@ -17,7 +17,7 @@ from .install_manager import (InstallManager, InstallError, current_package_time
 from .log_manager import LogManager
 from .manifest import (archive_version_for, build_manifest, check_archive,
                        check_manifest_asset, load_history, write_manifest)
-from .release import BuildResult
+from .release import BuildResult, write_build_result
 
 # 提交在仓库里的历史哈希
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
@@ -550,6 +550,12 @@ def create_cli_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        '--result-file',
+        help='打包成功后把构建结果写成 JSON 到这个路径，同目录写出 release-notes.md；'
+             '不能与 --skip-package / --skip-install 同用'
+    )
+
+    parser.add_argument(
         '--skip-cleanup',
         action='store_true',
         help='不清理临时文件'
@@ -589,11 +595,19 @@ def create_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def parse_args(parser: argparse.ArgumentParser, argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """解析参数，并拒绝互相矛盾的组合"""
+    args = parser.parse_args(argv)
+    if args.result_file and (args.skip_package or args.skip_install):
+        parser.error("--result-file 需要打包，不能与 --skip-package / --skip-install 同用")
+    return args
+
+
 def main():
     """主函数"""
     parser = create_cli_parser()
-    args = parser.parse_args()
-    
+    args = parse_args(parser)
+
     try:
         # 创建管理器实例
         manager = MPVConfigManager(args.config, args.log_level, args.output_dir)
@@ -615,7 +629,7 @@ def main():
                 manager.clean_directories(clean_temp=True, clean_output=True)
         else:
             # 执行主流程
-            success = manager.run(
+            result = manager.run(
                 dependencies=args.deps,
                 skip_download=args.skip_download,
                 skip_install=args.skip_install,
@@ -626,8 +640,11 @@ def main():
                 previous_manifest_path=args.previous_manifest
             )
             
-            if not success:
+            if result is None:
                 sys.exit(1)
+            if args.result_file:
+                path = write_build_result(result, Path(args.result_file))
+                print(f"构建结果已写入: {path}")
     
     except KeyboardInterrupt:
         print("\n操作被用户中断")

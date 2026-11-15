@@ -568,6 +568,25 @@ class TestPackagingProducesManifest(unittest.TestCase):
             ("smart_skip", "local"), ("thumbfast", "local"),
         ])
 
+    def test_command_line_writes_the_build_result(self):
+        from unittest import mock
+        from src.main import main
+
+        self.run_packaging()  # 写出 package_cfg.json
+        result_file = self.tmp / "ci" / "build-result.json"
+        argv = ["run.py", "--config", str(self.tmp / "package_cfg.json"), "--log-level", "ERROR",
+                "--package-timestamp", "20261114_235959", "--result-file", str(result_file),
+                "--manifest-history", str(self.tmp / "empty-history.json")]
+        with mock.patch("sys.argv", argv), mock.patch("sys.stdout"):
+            main()
+
+        data = json.loads(result_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["archiveVersion"], "fntv-mpv-v20261114_235959")
+        self.assertTrue(Path(data["packagePath"]).is_file())
+        notes = Path(data["releaseNotesPath"]).read_text(encoding="utf-8")
+        self.assertIn("- 🔧 smart_skip (local)", notes)
+        self.assertIn("└── portable_config/ # 便携式配置目录", notes)
+
     def test_build_result_without_package_has_no_package_fields(self):
         result, _ = self.run_packaging(create_package=False)
 
