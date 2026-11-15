@@ -538,13 +538,13 @@ class TestPackagingProducesManifest(unittest.TestCase):
             "dependencies": self.dependencies,
         }), encoding="utf-8")
         manager = MPVConfigManager(str(config_path), "ERROR")
-        ok = manager.run(package_timestamp="20261114_235959", **run_kwargs)
-        return ok, self.tmp / "out" / "mpv-package-20261114_235959.zip"
+        result = manager.run(package_timestamp="20261114_235959", **run_kwargs)
+        return result, self.tmp / "out" / "mpv-package-20261114_235959.zip"
 
     def test_package_contains_manifest_matching_its_tag(self):
-        ok, zip_path = self.run_packaging()
+        result, zip_path = self.run_packaging()
 
-        self.assertTrue(ok)
+        self.assertIsNotNone(result)
         with zipfile.ZipFile(zip_path) as z:
             manifest = json.loads(z.read("fntv-manifest.json"))
         self.assertEqual(manifest["archiveVersion"], "fntv-mpv-v20261114_235959")
@@ -557,16 +557,17 @@ class TestPackagingProducesManifest(unittest.TestCase):
     def test_build_result_points_at_what_was_built(self):
         result, zip_path = self.run_packaging()
 
-        self.assertEqual(result.timestamp, "20261114_235959")
-        self.assertEqual(result.archive_version, "fntv-mpv-v20261114_235959")
-        self.assertEqual(result.package_path, zip_path.resolve())
-        self.assertEqual(result.manifest_asset_path, (zip_path.parent / "fntv-manifest.json").resolve())
+        package = result.package
+        self.assertEqual(package.timestamp, "20261114_235959")
+        self.assertEqual(package.archive_version, "fntv-mpv-v20261114_235959")
+        self.assertEqual(package.path, zip_path.resolve())
+        self.assertEqual(package.manifest_asset_path, (zip_path.parent / "fntv-manifest.json").resolve())
         self.assertEqual(result.output_dir, (self.tmp / "out").resolve())
         self.assertTrue((result.project_dir / "portable_config").is_dir())
-        self.assertEqual(result.dependencies, [
+        self.assertEqual(result.dependencies, (
             ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
             ("smart_skip", "local"), ("thumbfast", "local"),
-        ])
+        ))
 
     def test_command_line_writes_the_build_result(self):
         from unittest import mock
@@ -587,19 +588,17 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.assertIn("- 🔧 smart_skip (local)", notes)
         self.assertIn("└── portable_config/ # 便携式配置目录", notes)
 
-    def test_build_result_without_package_has_no_package_fields(self):
+    def test_build_result_without_package_has_no_package(self):
         result, _ = self.run_packaging(create_package=False)
 
         self.assertIsNotNone(result)
-        self.assertIsNone(result.package_path)
-        self.assertIsNone(result.archive_version)
-        self.assertIsNone(result.timestamp)
+        self.assertIsNone(result.package)
 
     def test_manifest_asset_sits_next_to_the_zip(self):
         # Release 把 <输出目录>/fntv-manifest.json 作为单独资产上传，路径不能依赖项目名子目录
-        ok, zip_path = self.run_packaging()
+        result, zip_path = self.run_packaging()
 
-        self.assertTrue(ok)
+        self.assertIsNotNone(result)
         asset = zip_path.parent / "fntv-manifest.json"
         with zipfile.ZipFile(zip_path) as z:
             self.assertEqual(asset.read_bytes(), z.read("fntv-manifest.json"))
@@ -615,10 +614,10 @@ class TestPackagingProducesManifest(unittest.TestCase):
             {"path": "scripts/older.lua", "knownHashes": [SHA256_GHI]},
         ]}), encoding="utf-8")
 
-        ok, zip_path = self.run_packaging(history_path=str(history_path),
-                                          previous_manifest_path=str(previous_path))
+        result, zip_path = self.run_packaging(history_path=str(history_path),
+                                              previous_manifest_path=str(previous_path))
 
-        self.assertTrue(ok)
+        self.assertIsNotNone(result)
         with zipfile.ZipFile(zip_path) as z:
             manifest = json.loads(z.read("fntv-manifest.json"))
         files = {f["path"]: f for f in manifest["files"]}
@@ -631,9 +630,9 @@ class TestPackagingProducesManifest(unittest.TestCase):
     def test_packaging_fails_when_contract_fails(self):
         del self.dependencies["smart_skip"]
 
-        ok, _ = self.run_packaging()
+        result, _ = self.run_packaging()
 
-        self.assertFalse(ok)
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

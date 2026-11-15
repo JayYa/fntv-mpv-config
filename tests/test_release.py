@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from release import BuildResult, render_release_notes, write_build_result
+from release import BuildResult, PackageArchive, render_release_notes, write_build_result
 
 GITHUB_ENV = {
     "GITHUB_SHA": "abc123",
@@ -28,6 +28,9 @@ fntv-mpv-config/
     │   └── uosc_icons.OTF # 字体文件
     ├── Input.conf # 快捷键配置
     ├── notes.txt
+    ├── script-opts/ # 插件配置目录
+    │   ├── uosc_danmaku.conf # 弹幕插件配置
+    │   └── uosc.conf # uosc插件配置
     └── scripts/ # 插件脚本目录
         └── uosc/ # uosc插件"""
 
@@ -41,6 +44,9 @@ class ReleaseTestCase(unittest.TestCase):
             "portable_config/Input.conf",
             "portable_config/notes.txt",
             "portable_config/fonts/uosc_icons.OTF",
+            # 旧 workflow 的 PowerShell 排序里 '_' 先于 '.'，'-' 先于字母
+            "portable_config/script-opts/uosc.conf",
+            "portable_config/script-opts/uosc_danmaku.conf",
             # 第 4 层不再展开
             "portable_config/scripts/uosc/main.lua",
         ]
@@ -48,6 +54,12 @@ class ReleaseTestCase(unittest.TestCase):
             path = project / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"x")
+        if sys.platform == "win32":
+            # 隐藏文件不进目录树（旧 workflow 的 Get-ChildItem 不带 -Force）
+            import ctypes
+            hidden = project / "portable_config" / "desktop.ini"
+            hidden.write_bytes(b"x")
+            ctypes.windll.kernel32.SetFileAttributesW(str(hidden), 0x2)
         package = self.tmp / "out" / "mpv-package-20261115_010807.zip"
         package.write_bytes(b"zip")
         asset = self.tmp / "out" / "fntv-manifest.json"
@@ -55,11 +67,13 @@ class ReleaseTestCase(unittest.TestCase):
         self.result = BuildResult(
             output_dir=self.tmp / "out",
             project_dir=project,
-            dependencies=[("mpv", "20261108"), ("smart_skip", "")],
-            timestamp="20261115_010807",
-            archive_version="fntv-mpv-v20261115_010807",
-            package_path=package,
-            manifest_asset_path=asset,
+            dependencies=(("mpv", "20261108"), ("smart_skip", "")),
+            package=PackageArchive(
+                path=package,
+                manifest_asset_path=asset,
+                archive_version="fntv-mpv-v20261115_010807",
+                timestamp="20261115_010807",
+            ),
         )
 
     def tearDown(self):
@@ -140,8 +154,8 @@ class TestWriteBuildResult(ReleaseTestCase):
             "archiveVersion": "fntv-mpv-v20261115_010807",
             "timestamp": "20261115_010807",
             "outputDir": str(self.result.output_dir),
-            "packagePath": str(self.result.package_path),
-            "manifestAssetPath": str(self.result.manifest_asset_path),
+            "packagePath": str(self.result.package.path),
+            "manifestAssetPath": str(self.result.package.manifest_asset_path),
             "releaseNotesPath": str(notes.resolve()),
         })
         self.assertEqual(notes.read_text(encoding="utf-8"),

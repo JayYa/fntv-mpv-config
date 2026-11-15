@@ -5,7 +5,7 @@
 """
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from string import Template
 from typing import List, Mapping, Optional, Tuple
@@ -15,6 +15,10 @@ RELEASE_NOTES_NAME = "release-notes.md"
 
 # 目录树扫描的层数（项目目录下），与旧 workflow 一致
 TREE_DEPTH = 3
+
+# ICU 根排序里 ASCII 标点的先后（windows-latest 上 pwsh 7 实测）
+PUNCTUATION_ORDER = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
+FILE_ATTRIBUTE_HIDDEN = 0x2
 
 DIR_COMMENTS = {
     "portable_config": "便携式配置目录",
@@ -53,20 +57,26 @@ SUFFIX_COMMENTS = {
 
 
 @dataclass(frozen=True)
+class PackageArchive:
+    """一次构建产出的安装包，以及随它单独上传的清单资产"""
+    path: Path
+    manifest_asset_path: Path
+    archive_version: str
+    timestamp: str
+
+
+@dataclass(frozen=True)
 class BuildResult:
     """
     一次构建的结果
 
-    不打包（--skip-package / --skip-install）时，安装包相关字段都是 None。
+    不打包（--skip-package / --skip-install）时 package 是 None。
     """
     output_dir: Path
     project_dir: Path
     # 本次实际处理的依赖：(显示名, 版本)，按处理顺序
-    dependencies: List[Tuple[str, str]] = field(default_factory=list)
-    timestamp: Optional[str] = None
-    archive_version: Optional[str] = None
-    package_path: Optional[Path] = None
-    manifest_asset_path: Optional[Path] = None
+    dependencies: Tuple[Tuple[str, str], ...] = ()
+    package: Optional[PackageArchive] = None
 
 
 def write_build_result(result: BuildResult, path: Path,
@@ -85,18 +95,19 @@ def write_build_result(result: BuildResult, path: Path,
     Raises:
         ValueError: 构建没有产出安装包
     """
-    if result.package_path is None:
+    package = result.package
+    if package is None:
         raise ValueError("构建没有产出安装包，无法写出构建结果")
     path = Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     notes_path = path.parent / RELEASE_NOTES_NAME
     notes_path.write_text(render_release_notes(result, env), encoding="utf-8", newline="\n")
     data = {
-        "archiveVersion": result.archive_version,
-        "timestamp": result.timestamp,
+        "archiveVersion": package.archive_version,
+        "timestamp": package.timestamp,
         "outputDir": str(result.output_dir),
-        "packagePath": str(result.package_path),
-        "manifestAssetPath": str(result.manifest_asset_path),
+        "packagePath": str(package.path),
+        "manifestAssetPath": str(package.manifest_asset_path),
         "releaseNotesPath": str(notes_path),
     }
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
@@ -109,7 +120,13 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
     生成 Release 说明（Markdown）
 
     提交、分支和链接来自 GitHub Actions 的标准环境变量；缺少时省略对应的行。
+
+    Raises:
+        ValueError: 构建没有产出安装包
     """
+    package = result.package
+    if package is None:
+        raise ValueError("构建没有产出安装包，无法生成 Release 说明")
     env = os.environ if env is None else env
     sha = env.get("GITHUB_SHA")
     branch = env.get("GITHUB_REF_NAME")
@@ -138,10 +155,10 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
 
     template = Template(RELEASE_NOTES_TEMPLATE.read_text(encoding="utf-8"))
     return template.substitute(
-        timestamp=result.timestamp,
+        timestamp=package.timestamp,
         build_info=build_info,
         dependencies=dependencies,
-        package_name=Path(result.package_path).name,
+        package_name=Path(package.path).name,
         directory_tree=_directory_tree(Path(result.project_dir)),
         links=links,
     )
@@ -157,7 +174,8 @@ def _directory_tree(root: Path) -> str:
 def _tree_lines(directory: Path, prefix: str, depth: int, lines: List[str]) -> None:
     if depth >= TREE_DEPTH:
         return
-    items = sorted(directory.iterdir(), key=lambda p: p.name.lower())
+    items = sorted((p for p in directory.iterdir() if not _is_hidden(p)),
+                   key=lambda p: _culture_sort_key(p.name))
     for i, item in enumerate(items):
         last = i == len(items) - 1
         branch = prefix + ("└──" if last else "├──")
@@ -167,6 +185,29 @@ def _tree_lines(directory: Path, prefix: str, depth: int, lines: List[str]) -> N
         else:
             comment = FILE_COMMENTS.get(item.name.lower()) or SUFFIX_COMMENTS.get(item.suffix.lower())
             lines.append(_with_comment(f"{branch} {item.name}", comment))
+
+
+def _culture_sort_key(name: str) -> List[Tuple[int, object]]:
+    """
+    复现旧 workflow 里 PowerShell Sort-Object Name 的顺序（.NET/ICU 区域比较）：
+    不分大小写；标点按 PUNCTUATION_ORDER 排在数字前，数字逐字符比较，排在字母前。
+    例如 uosc_danmaku.conf 排在 uosc.conf 前面（'_' 先于 '.'）。
+    """
+    key = []
+    for ch in name.lower():
+        rank = PUNCTUATION_ORDER.find(ch)
+        if rank >= 0:
+            key.append((0, rank))
+        elif ch.isdigit():
+            key.append((1, ch))
+        else:
+            key.append((2, ch))
+    return key
+
+
+def _is_hidden(path: Path) -> bool:
+    """Windows 隐藏属性的文件；旧 workflow 的 Get-ChildItem 不带 -Force，会跳过它们"""
+    return bool(getattr(path.stat(), "st_file_attributes", 0) & FILE_ATTRIBUTE_HIDDEN)
 
 
 def _with_comment(text: str, comment: Optional[str]) -> str:

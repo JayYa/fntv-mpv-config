@@ -17,7 +17,7 @@ from .install_manager import (InstallManager, InstallError, current_package_time
 from .log_manager import LogManager
 from .manifest import (archive_version_for, build_manifest, check_archive,
                        check_manifest_asset, load_history, write_manifest)
-from .release import BuildResult, write_build_result
+from .release import BuildResult, PackageArchive, write_build_result
 
 # 提交在仓库里的历史哈希
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
@@ -135,8 +135,8 @@ class MPVConfigManager:
             result = BuildResult(
                 output_dir=self.install_manager.base_output_dir.resolve(),
                 project_dir=self.install_manager.output_dir.resolve(),
-                dependencies=[(str(dep.get('name', name)), str(dep.get('version', '')))
-                              for name, dep in target_dependencies.items()],
+                dependencies=tuple((str(dep.get('name', name)), str(dep.get('version', '')))
+                                   for name, dep in target_dependencies.items()),
             )
 
             # 生成清单、创建安装包，然后对安装包跑契约测试
@@ -178,13 +178,12 @@ class MPVConfigManager:
                     return None
                 self.logger.info("契约测试通过")
 
-                result = replace(
-                    result,
-                    timestamp=package_timestamp,
-                    archive_version=archive_version,
-                    package_path=package_path.resolve(),
+                result = replace(result, package=PackageArchive(
+                    path=package_path.resolve(),
                     manifest_asset_path=asset_path.resolve(),
-                )
+                    archive_version=archive_version,
+                    timestamp=package_timestamp,
+                ))
 
             # 清理临时文件
             if cleanup:

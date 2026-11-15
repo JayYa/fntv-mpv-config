@@ -380,7 +380,7 @@ def check_manifest_asset(zip_path: Path, asset_path: Path) -> List[str]:
         return [f"Release 要上传的 {MANIFEST_NAME} 不存在: {asset_path}"]
     with zipfile.ZipFile(zip_path) as z:
         if MANIFEST_NAME not in z.namelist():
-            return [f"归档根目录缺少 {MANIFEST_NAME}"]
+            return [f"安装包根目录缺少 {MANIFEST_NAME}"]
         if asset_path.read_bytes() != z.read(MANIFEST_NAME):
             return [f"Release 要上传的 {asset_path} 与 zip 里的 {MANIFEST_NAME} 不同"]
     return []

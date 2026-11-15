@@ -80,7 +80,7 @@ tests/
 - **TestCheckArchive**: 对 zip 的每项契约检查、清单资产与 zip 内清单的比对，以及 `check_archive.py` 的退出码和 `--manifest-asset`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 用本地假插件跑完整打包流程；`run()` 返回的构建结果指向实际产物，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 用本地假插件跑完整打包流程；`run()` 返回的构建结果指向实际的安装包和清单，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 5. test_package_defaults.py - 发版输入测试
 - **TestPackageDefaults**: 固定 `mpv`、`uosc`、`uosc_danmaku` 的版本和下载地址；`danmaku-history.json` 只含 `{"show_danmaku": true}`。升级依赖项时要同时改这里的期望值
