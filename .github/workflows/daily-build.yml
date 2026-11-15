@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   # 推送到release分支时也触发
   push:
-    branches: [ release, master ]
+    branches: [ release ]
 
 jobs:
   build:
@@ -324,7 +324,7 @@ jobs:
         retention-days: 30
     
     - name: Create Release (if on release branch)
-      if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/master'
+      if: github.ref == 'refs/heads/release'
       id: create_release
       uses: softprops/action-gh-release@v2
       with:
