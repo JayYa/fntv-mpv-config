@@ -1,5 +1,3 @@
-"""构建结果：结果 JSON、Release 说明和 --result-file 参数"""
-
 import io
 import json
 import shutil
@@ -11,7 +9,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from release import BuildResult, PackageArchive, render_release_notes, write_build_result
+from release import (FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, PackageArchive,
+                     render_release_notes, write_build_result)
 
 GITHUB_ENV = {
     "GITHUB_SHA": "abc123",
@@ -44,10 +43,8 @@ class ReleaseTestCase(unittest.TestCase):
             "portable_config/Input.conf",
             "portable_config/notes.txt",
             "portable_config/fonts/uosc_icons.OTF",
-            # 旧 workflow 的 PowerShell 排序里 '_' 先于 '.'，'-' 先于字母
             "portable_config/script-opts/uosc.conf",
             "portable_config/script-opts/uosc_danmaku.conf",
-            # 第 4 层不再展开
             "portable_config/scripts/uosc/main.lua",
         ]
         for rel in files:
@@ -55,11 +52,10 @@ class ReleaseTestCase(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"x")
         if sys.platform == "win32":
-            # 隐藏文件不进目录树（旧 workflow 的 Get-ChildItem 不带 -Force）
             import ctypes
             hidden = project / "portable_config" / "desktop.ini"
             hidden.write_bytes(b"x")
-            ctypes.windll.kernel32.SetFileAttributesW(str(hidden), 0x2)
+            ctypes.windll.kernel32.SetFileAttributesW(str(hidden), FILE_ATTRIBUTE_HIDDEN)
         package = self.tmp / "out" / "mpv-package-20261115_010807.zip"
         package.write_bytes(b"zip")
         asset = self.tmp / "out" / "fntv-manifest.json"
@@ -67,7 +63,7 @@ class ReleaseTestCase(unittest.TestCase):
         self.result = BuildResult(
             output_dir=self.tmp / "out",
             project_dir=project,
-            dependencies=(("mpv", "20261108"), ("smart_skip", "")),
+            processed_dependencies=(Dependency("mpv", "20261108"), Dependency("smart_skip", "")),
             package=PackageArchive(
                 path=package,
                 manifest_asset_path=asset,
@@ -170,8 +166,6 @@ class TestWriteBuildResult(ReleaseTestCase):
 
 
 class TestResultFileCli(unittest.TestCase):
-    """--result-file 需要打包，解析参数时就拒绝矛盾组合"""
-
     def parse(self, argv):
         from src.main import create_cli_parser, parse_args
         return parse_args(create_cli_parser(), argv)

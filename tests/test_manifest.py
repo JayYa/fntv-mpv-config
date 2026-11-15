@@ -518,14 +518,12 @@ class TestPackagingProducesManifest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def run_packaging(self, **run_kwargs):
-        from src.main import MPVConfigManager
+    def write_empty_history(self) -> Path:
+        path = self.tmp / "empty-history.json"
+        path.write_text('{"archives": [], "files": {}}', encoding="utf-8")
+        return path
 
-        if "history_path" not in run_kwargs:
-            empty = self.tmp / "empty-history.json"
-            empty.write_text('{"archives": [], "files": {}}', encoding="utf-8")
-            run_kwargs["history_path"] = str(empty)
-
+    def write_package_config(self) -> Path:
         config_path = self.tmp / "package_cfg.json"
         config_path.write_text(json.dumps({
             "name": json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"],
@@ -537,7 +535,13 @@ class TestPackagingProducesManifest(unittest.TestCase):
             },
             "dependencies": self.dependencies,
         }), encoding="utf-8")
-        manager = MPVConfigManager(str(config_path), "ERROR")
+        return config_path
+
+    def run_packaging(self, **run_kwargs):
+        from src.main import MPVConfigManager
+
+        run_kwargs.setdefault("history_path", str(self.write_empty_history()))
+        manager = MPVConfigManager(str(self.write_package_config()), "ERROR")
         result = manager.run(package_timestamp="20261114_235959", **run_kwargs)
         return result, self.tmp / "out" / "mpv-package-20261114_235959.zip"
 
@@ -564,7 +568,7 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.assertEqual(package.manifest_asset_path, (zip_path.parent / "fntv-manifest.json").resolve())
         self.assertEqual(result.output_dir, (self.tmp / "out").resolve())
         self.assertTrue((result.project_dir / "portable_config").is_dir())
-        self.assertEqual(result.dependencies, (
+        self.assertEqual(result.processed_dependencies, (
             ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
             ("smart_skip", "local"), ("thumbfast", "local"),
         ))
@@ -573,11 +577,10 @@ class TestPackagingProducesManifest(unittest.TestCase):
         from unittest import mock
         from src.main import main
 
-        self.run_packaging()  # 写出 package_cfg.json
         result_file = self.tmp / "ci" / "build-result.json"
-        argv = ["run.py", "--config", str(self.tmp / "package_cfg.json"), "--log-level", "ERROR",
+        argv = ["run.py", "--config", str(self.write_package_config()), "--log-level", "ERROR",
                 "--package-timestamp", "20261114_235959", "--result-file", str(result_file),
-                "--manifest-history", str(self.tmp / "empty-history.json")]
+                "--manifest-history", str(self.write_empty_history())]
         with mock.patch("sys.argv", argv), mock.patch("sys.stdout"):
             main()
 

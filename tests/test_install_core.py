@@ -158,7 +158,6 @@ class TestCreatePackageName(unittest.TestCase):
             self.assertEqual(zf.namelist(), ["mpv.exe"])
 
     def test_default_timestamp_uses_beijing_time(self):
-        # UTC 2026-11-14 17:08:07 是北京时间 2026-11-15 01:08:07，跨过日期
         utc = datetime(2026, 11, 14, 17, 8, 7, tzinfo=timezone.utc)
         with mock.patch("install_manager.datetime") as fake_datetime:
             fake_datetime.now.side_effect = lambda tz: utc.astimezone(tz)

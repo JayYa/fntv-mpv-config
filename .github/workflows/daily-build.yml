@@ -68,8 +68,6 @@ jobs:
     - name: Run MPV config build
       id: build
       run: |
-        # 构建（含契约测试）成功后写出构建结果：安装包和清单资产的路径、归档版本、时间戳、Release 说明。
-        # 后面的步骤只读构建结果，不自行推导任何命名。
         $previous = @()
         if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
         $resultFile = Join-Path $env:RUNNER_TEMP "build/build-result.json"
@@ -83,7 +81,6 @@ jobs:
         # 设置UTF-8编码以支持中文日志
         PYTHONIOENCODING: utf-8
         PYTHONLEGACYWINDOWSSTDIO: utf-8
-        # GitHub API 认证，避免匿名限流
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload build artifacts

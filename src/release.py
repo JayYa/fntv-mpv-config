@@ -1,23 +1,16 @@
-"""
-构建结果：一次构建交给发布步骤的全部事实
-
-发布步骤（.github/workflows/daily-build.yml）只读构建结果，不自行推导安装包名、tag 或时间戳。
-"""
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from string import Template
-from typing import List, Mapping, Optional, Tuple
+from typing import List, Mapping, NamedTuple, Optional, Tuple
 
 RELEASE_NOTES_TEMPLATE = Path(__file__).parent.parent / "templates" / "release-notes.md"
 RELEASE_NOTES_NAME = "release-notes.md"
 
-# 目录树扫描的层数（项目目录下），与旧 workflow 一致
 TREE_DEPTH = 3
 
-# ICU 根排序里 ASCII 标点的先后（windows-latest 上 pwsh 7 实测）
-PUNCTUATION_ORDER = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
+ICU_ROOT_PUNCTUATION_ORDER = " _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$"
 FILE_ATTRIBUTE_HIDDEN = 0x2
 
 DIR_COMMENTS = {
@@ -56,9 +49,13 @@ SUFFIX_COMMENTS = {
 }
 
 
+class Dependency(NamedTuple):
+    name: str
+    version: str
+
+
 @dataclass(frozen=True)
 class PackageArchive:
-    """一次构建产出的安装包，以及随它单独上传的清单资产"""
     path: Path
     manifest_asset_path: Path
     archive_version: str
@@ -74,8 +71,7 @@ class BuildResult:
     """
     output_dir: Path
     project_dir: Path
-    # 本次实际处理的依赖：(显示名, 版本)，按处理顺序
-    dependencies: Tuple[Tuple[str, str], ...] = ()
+    processed_dependencies: Tuple[Dependency, ...] = ()
     package: Optional[PackageArchive] = None
 
 
@@ -150,7 +146,7 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
 
     dependencies = "\n".join(
         f"- 🔧 {name} ({version})" if version else f"- 🔧 {name}"
-        for name, version in result.dependencies
+        for name, version in result.processed_dependencies
     )
 
     template = Template(RELEASE_NOTES_TEMPLATE.read_text(encoding="utf-8"))
@@ -165,7 +161,6 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
 
 
 def _directory_tree(root: Path) -> str:
-    """项目目录的树形文本，带中文注释，扫描 TREE_DEPTH 层"""
     lines = [f"{root.name}/"]
     _tree_lines(root, "", 0, lines)
     return "\n".join(lines)
@@ -175,7 +170,7 @@ def _tree_lines(directory: Path, prefix: str, depth: int, lines: List[str]) -> N
     if depth >= TREE_DEPTH:
         return
     items = sorted((p for p in directory.iterdir() if not _is_hidden(p)),
-                   key=lambda p: _culture_sort_key(p.name))
+                   key=lambda p: _icu_collation_key(p.name))
     for i, item in enumerate(items):
         last = i == len(items) - 1
         branch = prefix + ("└──" if last else "├──")
@@ -187,15 +182,10 @@ def _tree_lines(directory: Path, prefix: str, depth: int, lines: List[str]) -> N
             lines.append(_with_comment(f"{branch} {item.name}", comment))
 
 
-def _culture_sort_key(name: str) -> List[Tuple[int, object]]:
-    """
-    复现旧 workflow 里 PowerShell Sort-Object Name 的顺序（.NET/ICU 区域比较）：
-    不分大小写；标点按 PUNCTUATION_ORDER 排在数字前，数字逐字符比较，排在字母前。
-    例如 uosc_danmaku.conf 排在 uosc.conf 前面（'_' 先于 '.'）。
-    """
+def _icu_collation_key(name: str) -> List[Tuple[int, object]]:
     key = []
     for ch in name.lower():
-        rank = PUNCTUATION_ORDER.find(ch)
+        rank = ICU_ROOT_PUNCTUATION_ORDER.find(ch)
         if rank >= 0:
             key.append((0, rank))
         elif ch.isdigit():
@@ -206,7 +196,6 @@ def _culture_sort_key(name: str) -> List[Tuple[int, object]]:
 
 
 def _is_hidden(path: Path) -> bool:
-    """Windows 隐藏属性的文件；旧 workflow 的 Get-ChildItem 不带 -Force，会跳过它们"""
     return bool(getattr(path.stat(), "st_file_attributes", 0) & FILE_ATTRIBUTE_HIDDEN)
 
 

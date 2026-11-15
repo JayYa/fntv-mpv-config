@@ -17,7 +17,7 @@ from .install_manager import (InstallManager, InstallError, current_package_time
 from .log_manager import LogManager
 from .manifest import (archive_version_for, build_manifest, check_archive,
                        check_manifest_asset, load_history, write_manifest)
-from .release import BuildResult, PackageArchive, write_build_result
+from .release import BuildResult, Dependency, PackageArchive, write_build_result
 
 # 提交在仓库里的历史哈希
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
@@ -135,8 +135,10 @@ class MPVConfigManager:
             result = BuildResult(
                 output_dir=self.install_manager.base_output_dir.resolve(),
                 project_dir=self.install_manager.output_dir.resolve(),
-                dependencies=tuple((str(dep.get('name', name)), str(dep.get('version', '')))
-                                   for name, dep in target_dependencies.items()),
+                processed_dependencies=tuple(
+                    Dependency(str(dep.get('name', name)), str(dep.get('version', '')))
+                    for name, dep in target_dependencies.items()
+                ),
             )
 
             # 生成清单、创建安装包，然后对安装包跑契约测试
@@ -165,13 +167,12 @@ class MPVConfigManager:
                 package_path = self.install_manager.create_package(package_timestamp)
                 self.logger.info(f"安装包已创建: {package_path}")
 
-                # Release 单独上传的清单资产：放在 zip 旁边，路径与项目名子目录无关
-                asset_path = write_manifest(package_path.parent, manifest)
-                self.logger.info(f"清单资产已写入: {asset_path}")
+                manifest_asset_path = write_manifest(package_path.parent, manifest)
+                self.logger.info(f"清单资产已写入: {manifest_asset_path}")
 
                 errors = check_archive(package_path, archive_version=archive_version,
                                        history=history, previous_manifest=previous_manifest)
-                errors += check_manifest_asset(package_path, asset_path)
+                errors += check_manifest_asset(package_path, manifest_asset_path)
                 if errors:
                     for error in errors:
                         self.logger.error(f"契约测试失败: {error}")
@@ -180,7 +181,7 @@ class MPVConfigManager:
 
                 result = replace(result, package=PackageArchive(
                     path=package_path.resolve(),
-                    manifest_asset_path=asset_path.resolve(),
+                    manifest_asset_path=manifest_asset_path.resolve(),
                     archive_version=archive_version,
                     timestamp=package_timestamp,
                 ))
