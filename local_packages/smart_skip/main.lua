@@ -45,7 +45,7 @@ local LABELS = { intro = "⏭️ 正在跳过片头...", outro = "⏭️ 正在�
 --   lens     片头/片尾时长 { intro, outro }
 --   edited   用户本文件内改过时长（之后晚到的服务器数据不再覆盖）
 --   windows  缓存的跳过窗口 { intro = {a, b}, outro = {a, b} }
---   skipped  本文件已自动跳过的段
+--   skipped  本文件已自动跳过的段（改时长不清空：每段每个文件只自动跳一次）
 local current = nil
 
 local function recompute(state)
@@ -73,12 +73,12 @@ local function on_file_loaded()
         -- 已换文件，或用户已在本文件里改过时长：丢弃晚到的数据
         if current ~= state or state.edited then return end
         if err or not resp or resp.code ~= 0 then
-            msg.error("获取服务器跳过时间点失败: " .. tostring(err or (resp and resp.code)))
+            msg.error("获取服务器片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
             return
         end
         state.lens = skip_window.from_server(resp.data)
         recompute(state)
-        msg.info(string.format("服务器跳过时长: 片头 %d 秒, 片尾 %d 秒", state.lens.intro, state.lens.outro))
+        msg.info(string.format("服务器片头/片尾时长: 片头 %s 秒, 片尾 %s 秒", state.lens.intro, state.lens.outro))
     end)
 end
 

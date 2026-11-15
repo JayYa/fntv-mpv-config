@@ -162,6 +162,10 @@ class TestEdits(SkipWindowTestCase):
         # 片尾从 1340.4 秒开始 → 离结尾 99.6 秒，取整为 99
         self.assertEqual(self.edit_at(self.NO_DATA, EPISODE, "outro", 1340.4), ({"intro": 0, "outro": 99}, None))
 
+    def test_editing_drops_a_server_segment_that_breaks_the_rules(self):
+        # 服务器的片尾 800 秒超过一半，本来就不生效；改片头时不该被它挡住，也不该再上报它
+        self.assertEqual(self.edit({"intro": 0, "outro": 800}, EPISODE, "intro", 90), ({"intro": 90, "outro": 0}, None))
+
     def test_marking_the_current_position_is_validated_too(self):
         self.assertEqual(self.edit_at(self.NO_DATA, EPISODE, "outro", 300), (None, "片尾时长不能超过视频一半"))
 

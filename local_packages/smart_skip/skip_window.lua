@@ -50,8 +50,11 @@ end
 function M.edit(lens, duration, kind, len)
     local d = tonumber(duration) or 0
     if d <= 0 then return nil, "视频时长未知" end
-    if len < 0 then return nil, "必须 ≥ 0" end
-    local new = { intro = nonneg(lens.intro), outro = nonneg(lens.outro) }
+    len = tonumber(len)
+    if not len or len < 0 then return nil, "必须 ≥ 0" end
+    -- 另一段先按规则过滤：本来就不生效的服务器数据不挡住这次编辑，也不再上报
+    local intro, outro = usable_lens(lens, d)
+    local new = { intro = intro, outro = outro }
     new[kind] = len
     if not outro_ok(new.outro, d) then return nil, "片尾时长不能超过视频一半" end
     if not fits(new.intro, new.outro, d) then return nil, "片头与片尾不能重叠" end
