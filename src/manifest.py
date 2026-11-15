@@ -366,3 +366,21 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
         for h in sorted(hashes - have):
             errors.append(f"{path} 的 knownHashes 丢了历史哈希 {h}")
     return errors
+
+
+def check_manifest_asset(zip_path: Path, asset_path: Path) -> List[str]:
+    """
+    契约测试：Release 单独上传的清单资产必须存在，且与 zip 根目录里的清单逐字节相同
+
+    Returns:
+        错误列表，空列表表示通过
+    """
+    asset_path = Path(asset_path)
+    if not asset_path.is_file():
+        return [f"Release 要上传的 {MANIFEST_NAME} 不存在: {asset_path}"]
+    with zipfile.ZipFile(zip_path) as z:
+        if MANIFEST_NAME not in z.namelist():
+            return [f"安装包根目录缺少 {MANIFEST_NAME}"]
+        if asset_path.read_bytes() != z.read(MANIFEST_NAME):
+            return [f"Release 要上传的 {asset_path} 与 zip 里的 {MANIFEST_NAME} 不同"]
+    return []

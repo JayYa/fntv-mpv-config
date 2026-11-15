@@ -5,94 +5,43 @@ on:
   workflow_dispatch:
   # 推送到release分支时也触发
   push:
-    branches: [ release, master ]
+    branches: [ release ]
 
 jobs:
   build:
     runs-on: windows-latest
-    
+
     # 为GITHUB_TOKEN添加必要权限
     permissions:
       contents: write        # 需要写入权限来创建release
       actions: read         # 读取actions权限
       checks: read          # 读取checks权限
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-    
+
     - name: Install 7-Zip
       run: |
         # 安装7-Zip
         choco install 7zip -y
         # 验证安装
         7z --help
-        # 或者使用winget
-        # winget install --id 7zip.7zip --silent --accept-package-agreements --accept-source-agreements
-    
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
-    - name: Read configuration and setup directories
-      id: config
-      run: |
-        # 读取package_cfg.json并解析配置
-        $config = Get-Content -Path "package_cfg.json" -Raw | ConvertFrom-Json
-        # 与 src/config_manager.py 一致：环境变量 FNTV_MPV_OUTPUT_DIR 优先于配置文件
-        $outputDir = if ($env:FNTV_MPV_OUTPUT_DIR) { $env:FNTV_MPV_OUTPUT_DIR } else { $config.config.output_dir }
-        $tempDir = $config.config.temp_dir
-        
-        Write-Host "配置的输出目录: $outputDir"
-        Write-Host "配置的临时目录: $tempDir"
-        
-        # 转换为绝对路径并标准化
-        $outputDirResolved = Resolve-Path $outputDir -ErrorAction SilentlyContinue
-        if (-not $outputDirResolved) {
-          # 如果路径不存在，创建它
-          $outputDirAbsolute = [System.IO.Path]::GetFullPath($outputDir)
-          Write-Host "创建输出目录: $outputDirAbsolute"
-          New-Item -ItemType Directory -Path $outputDirAbsolute -Force
-          $outputDirResolved = $outputDirAbsolute
-        } else {
-          $outputDirResolved = $outputDirResolved.Path
-        }
-        
-        $tempDirResolved = Resolve-Path $tempDir -ErrorAction SilentlyContinue
-        if (-not $tempDirResolved) {
-          $tempDirAbsolute = [System.IO.Path]::GetFullPath($tempDir)
-          Write-Host "创建临时目录: $tempDirAbsolute"
-          New-Item -ItemType Directory -Path $tempDirAbsolute -Force
-          $tempDirResolved = $tempDirAbsolute
-        } else {
-          $tempDirResolved = $tempDirResolved.Path
-        }
-        
-        # 设置输出变量
-        echo "OUTPUT_DIR=$outputDirResolved" >> $env:GITHUB_OUTPUT
-        echo "TEMP_DIR=$tempDirResolved" >> $env:GITHUB_OUTPUT
-        echo "OUTPUT_DIR_RAW=$outputDir" >> $env:GITHUB_OUTPUT
-        echo "TEMP_DIR_RAW=$tempDir" >> $env:GITHUB_OUTPUT
-        
-        Write-Host "最终输出目录: $outputDirResolved"
-        Write-Host "最终临时目录: $tempDirResolved"
-      shell: pwsh
-    
-    - name: Get current date
-      id: date
-      run: |
-        # 在 Windows 环境下获取北京时间；Release tag 和安装包资产名都用这个时间
-        $beijingTime = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTime]::UtcNow, 'China Standard Time')
-        $dateString = $beijingTime.ToString('yyyyMMdd_HHmmss')
-        echo "DATE=$dateString" >> $env:GITHUB_OUTPUT
-        Write-Host "当前北京时间: $dateString"
-      shell: pwsh
+
+    - name: Run tests
+      run: python run_tests.py
+      env:
+        PYTHONIOENCODING: utf-8
 
     - name: Fetch previous release manifest
       id: previous
@@ -117,267 +66,43 @@ jobs:
       shell: pwsh
 
     - name: Run MPV config build
+      id: build
       run: |
         $previous = @()
         if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
-        python run.py --log-level INFO --package-timestamp "${{ steps.date.outputs.DATE }}" @previous
+        $resultFile = Join-Path $env:RUNNER_TEMP "build/build-result.json"
+        python run.py --log-level INFO --result-file $resultFile @previous
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        Get-Content $resultFile
+        $json = (Get-Content $resultFile) -join ""
+        echo "RESULT=$json" >> $env:GITHUB_OUTPUT
       shell: pwsh
       env:
         # 设置UTF-8编码以支持中文日志
         PYTHONIOENCODING: utf-8
         PYTHONLEGACYWINDOWSSTDIO: utf-8
-        # 如果需要访问私有仓库，可以设置GitHub token
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: List output files
-      run: |
-        echo "配置的输出目录: ${{ steps.config.outputs.OUTPUT_DIR_RAW }}"
-        echo "实际输出目录: ${{ steps.config.outputs.OUTPUT_DIR }}"
-        echo "Generated files:"
-        ls -la "${{ steps.config.outputs.OUTPUT_DIR }}" || echo "输出目录不存在或为空"
-      shell: bash
 
-    - name: Verify package name matches tag time
-      run: |
-        # 资产名必须是 mpv-package-<tag 时间>.zip，且输出目录里只有这一个 zip
-        $expected = "mpv-package-${{ steps.date.outputs.DATE }}.zip"
-        $zips = @(Get-ChildItem -Path "${{ steps.config.outputs.OUTPUT_DIR }}" -Filter *.zip | ForEach-Object Name)
-        Write-Host "期望资产: $expected"
-        Write-Host "实际 zip: $($zips -join ', ')"
-        if ($zips.Count -ne 1 -or $zips[0] -ne $expected) {
-          Write-Error "安装包名与 tag 时间不一致"
-          exit 1
-        }
-      shell: pwsh
-
-    - name: Contract test (fntv-manifest.json)
-      run: |
-        # 清单与 zip 内容一致、role 合法、客户端依赖的路径和 provides 齐全，archiveVersion 等于本次 tag；失败则不发版
-        # knownHashes 只增不减：manifest-history.json 和上一版清单里的每个哈希都还在
-        $previous = @()
-        if ("${{ steps.previous.outputs.MANIFEST }}") { $previous = @("--previous-manifest", "${{ steps.previous.outputs.MANIFEST }}") }
-        python check_archive.py "${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip" --archive-version "fntv-mpv-v${{ steps.date.outputs.DATE }}" --manifest-asset "${{ steps.config.outputs.OUTPUT_DIR }}/fntv-manifest.json" @previous
-        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      shell: pwsh
-      env:
-        PYTHONIOENCODING: utf-8
-
-    - name: Parse enabled plugins
-      id: plugins
-      run: |
-        # 读取package_cfg.json并解析启用的插件
-        $config = Get-Content -Path "package_cfg.json" -Raw | ConvertFrom-Json
-        $enabledPlugins = @()
-        
-        foreach ($key in $config.dependencies.PSObject.Properties.Name) {
-          $dependency = $config.dependencies.$key
-          if ($dependency.enabled -eq $true) {
-            $pluginInfo = "- 🔧 $($dependency.name)"
-            if ($dependency.version) {
-              $pluginInfo += " ($($dependency.version))"
-            }
-            $enabledPlugins += $pluginInfo
-          }
-        }
-        
-        # 将插件列表转换为多行字符串
-        $pluginsList = $enabledPlugins -join "`n"
-        
-        # 设置输出变量（处理多行文本）
-        $pluginsList = $pluginsList -replace "`r`n", "`n" -replace "`r", "`n"
-        echo "ENABLED_PLUGINS<<EOF" >> $env:GITHUB_OUTPUT
-        echo $pluginsList >> $env:GITHUB_OUTPUT
-        echo "EOF" >> $env:GITHUB_OUTPUT
-        
-        Write-Host "启用的插件:"
-        Write-Host $pluginsList
-      shell: pwsh
-    
-    - name: Generate directory structure
-      id: structure
-      run: |
-        # 生成实时目录结构
-        Write-Host "正在生成目录结构..."
-        
-        # 使用动态输出目录
-        $configOutputDir = "${{ steps.config.outputs.OUTPUT_DIR }}"
-        $targetDir = Join-Path $configOutputDir "fntv-mpv-config"
-        
-        Write-Host "检查目录: $targetDir"
-        
-        # 检查输出目录是否存在
-        if (Test-Path $targetDir) {
-          $outputDir = $targetDir
-          Write-Host "找到输出目录: $outputDir"
-        } else {
-          Write-Host "输出目录不存在: $targetDir，使用默认结构"
-          $outputDir = $null
-        }
-        
-        $structure = @()
-        $structure += "fntv-mpv-config/"
-        
-        # 定义递归函数（在全局作用域）
-        function Add-DirectoryStructure {
-          param($Path, $Prefix = "", $MaxDepth = 5, $CurrentDepth = 0)
-          
-          if ($CurrentDepth -ge $MaxDepth) { return @() }
-          
-          $result = @()
-          $items = Get-ChildItem -Path $Path | Sort-Object Name
-          for ($i = 0; $i -lt $items.Count; $i++) {
-            $item = $items[$i]
-            $isLast = ($i -eq $items.Count - 1)
-            $currentPrefix = $Prefix + $(if ($isLast) { "└──" } else { "├──" })
-            $nextPrefix = $Prefix + $(if ($isLast) { "    " } else { "│   " })
-            
-            # 添加注释
-            $comment = ""
-            if ($item.PSIsContainer) {
-              switch ($item.Name) {
-                "portable_config" { $comment = "# 便携式配置目录" }
-                "mpv" { $comment = "# MPV配置目录" }
-                "scripts" { $comment = "# 插件脚本目录" }
-                "script-opts" { $comment = "# 插件配置目录" }
-                "fonts" { $comment = "# 字体文件目录" }
-                "cache" { $comment = "# 缓存目录" }
-                "uosc" { $comment = "# uosc插件" }
-                "uosc_danmaku" { $comment = "# 弹幕插件" }
-                "elements" { $comment = "# UI元素" }
-                "lib" { $comment = "# 库文件" }
-                "bin" { $comment = "# 二进制文件" }
-                "intl" { $comment = "# 国际化文件" }
-                default { $comment = "" }
-              }
-              $result += "$currentPrefix $($item.Name)/ $comment".TrimEnd()
-              # 递归处理子目录
-              $subResult = Add-DirectoryStructure -Path $item.FullName -Prefix $nextPrefix -MaxDepth $MaxDepth -CurrentDepth ($CurrentDepth + 1)
-              $result += $subResult
-            } else {
-              switch ($item.Name) {
-                "mpv.exe" { $comment = "# MPV播放器主程序" }
-                "mpv.com" { $comment = "# MPV命令行版本" }
-                "input.conf" { $comment = "# 快捷键配置" }
-                "mpv.conf" { $comment = "# MPV主配置" }
-                "uosc.conf" { $comment = "# uosc插件配置" }
-                "uosc_danmaku.conf" { $comment = "# 弹幕插件配置" }
-                "fonts.conf" { $comment = "# 字体配置" }
-                "d3dcompiler_43.dll" { $comment = "# 依赖库" }
-                "main.lua" { $comment = "# 主脚本" }
-                default {
-                  if ($item.Extension -eq ".lua") { $comment = "# Lua脚本" }
-                  elseif ($item.Extension -match "\.(otf|ttf)$") { $comment = "# 字体文件" }
-                  elseif ($item.Extension -eq ".dll") { $comment = "# 依赖库" }
-                  elseif ($item.Extension -eq ".exe") { $comment = "# 可执行文件" }
-                }
-              }
-              $result += "$currentPrefix $($item.Name) $comment".TrimEnd()
-            }
-          }
-          return $result
-        }
-        
-        if ($outputDir -and (Test-Path $outputDir)) {
-          Write-Host "扫描目录: $outputDir"
-          # 扫描输出目录，深度3层
-          $dirStructure = Add-DirectoryStructure -Path $outputDir -MaxDepth 3
-          $structure += $dirStructure
-          Write-Host "扫描到 $($dirStructure.Count) 个项目"
-        } else {
-          # 预设结构（3层深度示例）
-          $structure += "├── mpv.exe                   # MPV播放器主程序"
-          $structure += "├── mpv.com                   # MPV命令行版本"
-          $structure += "├── portable_config/          # 便携式配置目录"
-          $structure += "│   ├── input.conf            # 快捷键配置"
-          $structure += "│   ├── mpv.conf              # MPV主配置"
-          $structure += "│   ├── scripts/              # 插件脚本目录"
-          $structure += "│   │   ├── uosc/             # uosc插件"
-          $structure += "│   │   └── uosc_danmaku/     # 弹幕插件"
-          $structure += "│   ├── script-opts/          # 插件配置目录"
-          $structure += "│   ├── fonts/                # 字体文件目录"
-          $structure += "│   ├── shaders/              # 着色器目录"
-          $structure += "│   └── cache/                # 缓存目录"
-          $structure += "├── mpv/                      # MPV配置目录"
-          $structure += "│   └── fonts.conf            # 字体配置"
-          $structure += "└── d3dcompiler_43.dll        # 依赖库"
-        }
-        
-        # 将目录结构转换为多行字符串
-        $structureText = $structure -join "`n"
-        
-        # 设置输出变量
-        $structureText = $structureText -replace "`r`n", "`n" -replace "`r", "`n"
-        echo "DIRECTORY_STRUCTURE<<EOF" >> $env:GITHUB_OUTPUT
-        echo $structureText >> $env:GITHUB_OUTPUT
-        echo "EOF" >> $env:GITHUB_OUTPUT
-        
-        Write-Host "生成的目录结构:"
-        Write-Host $structureText
-      shell: pwsh
-    
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: fntv-mpv-config-${{ steps.date.outputs.DATE }}
-        path: ${{ steps.config.outputs.OUTPUT_DIR }}
+        name: fntv-mpv-config-${{ fromJSON(steps.build.outputs.RESULT).timestamp }}
+        path: ${{ fromJSON(steps.build.outputs.RESULT).outputDir }}
         retention-days: 30
-    
+
     - name: Create Release (if on release branch)
-      if: github.ref == 'refs/heads/release' || github.ref == 'refs/heads/master'
+      if: github.ref == 'refs/heads/release'
       id: create_release
       uses: softprops/action-gh-release@v2
       with:
-        tag_name: fntv-mpv-v${{ steps.date.outputs.DATE }}
-        name: FNTV MPV v${{ steps.date.outputs.DATE }}
-        body: |
-          🎬 FNTV MPV - 自动构建包
-          
-          📅 构建时间: ${{ steps.date.outputs.DATE }}
-          🔧 构建分支: ${{ github.ref_name }}
-          📝 提交ID: ${{ github.sha }}
-
-          ## 📦 本次构建包含
-          ### 🎥 核心组件
-          - MPV播放器主程序
-          - 便携式配置文件结构
-          - 预配置的快捷键和播放设置
-          
-          ### 🔧 启用的插件/组件
-          ${{ steps.plugins.outputs.ENABLED_PLUGINS }}
-          
-          ## 🚀 快速开始
-          1. 下载 `mpv-package-${{ steps.date.outputs.DATE }}.zip` 文件
-          2. 解压到任意目录
-          3. 双击运行 `mpv.exe` 即可使用
-          4. 所有配置都是便携式的，无需安装
-          
-          ## 📁 目录结构
-          ```
-          ${{ steps.structure.outputs.DIRECTORY_STRUCTURE }}
-          ```
-          
-          ## ⚙️ 配置管理
-          - 🎮 快捷键: `portable_config/input.conf`
-          - 🎨 UI设置: `portable_config/script-opts/uosc.conf`
-          - 💬 弹幕设置: `portable_config/script-opts/uosc_danmaku.conf`
-          
-          ## 🔗 相关链接
-          - 📖 [使用文档](${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/README.md)
-          - 🐛 [问题反馈](${{ github.server_url }}/${{ github.repository }}/issues)
-          - 🔄 [配置更新](${{ github.server_url }}/${{ github.repository }}/releases)
+        tag_name: ${{ fromJSON(steps.build.outputs.RESULT).archiveVersion }}
+        name: FNTV MPV v${{ fromJSON(steps.build.outputs.RESULT).timestamp }}
+        body_path: ${{ fromJSON(steps.build.outputs.RESULT).releaseNotesPath }}
         # fntv-manifest.json 也单独上传（与 zip 根目录里的相同），供下一次构建并入历史哈希
         files: |
-          ${{ steps.config.outputs.OUTPUT_DIR }}/mpv-package-${{ steps.date.outputs.DATE }}.zip
-          ${{ steps.config.outputs.OUTPUT_DIR }}/fntv-manifest.json
+          ${{ fromJSON(steps.build.outputs.RESULT).packagePath }}
+          ${{ fromJSON(steps.build.outputs.RESULT).manifestAssetPath }}
         fail_on_unmatched_files: true
         draft: false
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Cleanup
-      if: always()
-      run: |
-        # 清理临时文件
-        rm -rf "${{ steps.config.outputs.TEMP_DIR }}"
-      shell: bash

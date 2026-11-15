@@ -73,59 +73,6 @@ function mutils.skip_if_in(curr_pos, a, b, why)
     return false
 end
 
--- 判断当前位置是否在区间 [a,b] 内
-function mutils.if_in(curr_pos, a, b)
-    return curr_pos >= a and curr_pos <= b
-end
-
--- 在指定时间窗口内寻找符合时长条件的连续章节区间
-function mutils.find_sections_in_window(chapters, start_time, end_time, min_dur, max_dur)
-    local candidates = {}
-
-    for i = 1, #chapters do
-        local chapter = chapters[i]
-        -- 确保章节在指定时间窗口内
-        if chapter.time >= start_time and chapter.time <= end_time then
-            local next_chapter = chapters[i + 1]
-            if next_chapter then
-                local duration = next_chapter.time - chapter.time
-                if duration >= min_dur and duration <= max_dur then
-                    table.insert(candidates, {
-                        start_time = chapter.time,
-                        end_time = next_chapter.time,
-                        duration = duration
-                    })
-                end
-            end
-        end
-    end
-
-    return candidates
-end
-
-function mutils.af_add_noise(label, threshold, duration)
-    mp.commandv("af", "add",
-        ("@%s:lavfi=[silencedetect=noise=%sdB:d=%.3f]"):format(label, threshold, duration))
-end
-
-function mutils.af_rm(label) mp.commandv("af", "remove", ("@%s"):format(label)) end
-
-function mutils.af_meta(label) return ("af-metadata/%s"):format(label) end
-
--- 新增：视频黑帧检测
-function mutils.vf_add_blackdetect(label, d, pic_th, pix_th)
-    -- d: 最小黑帧持续时间（秒），比如 0.1
-    -- pic_th: 黑画面比例阈值（0~1），比如 0.98
-    -- pix_th: 像素黑阈值（0~1），比如 0.10 (对应 ~25/255)
-    local chain = ("@%s:lavfi=[blackdetect=d=%.3f:pic_th=%.3f:pix_th=%.3f]"):
-        format(label, d or 0.10, pic_th or 0.98, pix_th or 0.10)
-    mp.commandv("vf", "add", chain)
-end
-
-function mutils.vf_meta(label)
-    return ("vf-metadata/%s"):format(label)
-end
-
 -- 提取 path 中的 id 以及原始 query string
 function mutils.extract_id_and_query(url)
     -- 提取 id （playvideo/后到 ? 前）
@@ -141,10 +88,20 @@ function mutils.extract_origin(url)
     return url:match("^(https?://[^/%?#]+)")
 end
 
--- 持久化配置
-function mutils.save_options()
-    local dir = utils.split_path(conf_path)
-    utils.subprocess({ args = { "mkdir", "-p", dir } })
+-- 目录不存在时创建；Windows 没有 mkdir -p，改走 cmd 的 mkdir（会自动建中间目录）
+local function ensure_dir(dir)
+    if utils.file_info(dir) then return end
+    local args
+    if package.config:sub(1, 1) == "\\" then
+        args = { "cmd", "/d", "/c", "mkdir", (dir:gsub("/", "\\")) }
+    else
+        args = { "mkdir", "-p", dir }
+    end
+    mp.command_native({ name = "subprocess", args = args, playback_only = false })
+end
+
+function mutils.save_options(opts)
+    ensure_dir(utils.split_path(conf_path))
 
     local f, err = io.open(conf_path, "w+")
     if not f then
@@ -152,24 +109,14 @@ function mutils.save_options()
         return
     end
 
-    -- 黑名单：这些key不应写入配置文件
-    local blacklist = {
-        ["manual_intro_start"] = true,
-        ["manual_intro_end"] = true,
-        ["manual_outro_start"] = true,
-        ["manual_outro_end"] = true,
-    }
-
     for k, v in pairs(opts) do
-        if not blacklist[k] then
-            local val
-            if type(v) == "boolean" then
-                val = v and "yes" or "no"
-            else
-                val = tostring(v)
-            end
-            f:write(string.format("%s=%s\n", k, val))
+        local val
+        if type(v) == "boolean" then
+            val = v and "yes" or "no"
+        else
+            val = tostring(v)
         end
+        f:write(string.format("%s=%s\n", k, val))
     end
 
     f:close()

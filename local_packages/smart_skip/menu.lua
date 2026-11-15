@@ -24,30 +24,40 @@ SOFTWARE.
 GitHub: https://github.com/QiaoKes/fntv-mpv-config
 ]]
 
+local mp          = require('mp')
 local msg         = require('mp.msg')
 local utils       = require('mp.utils')
-local api         = require('./api')
 local mutils      = require('./mutils')
 
--- 你的配置模块（需导出 opts / DETECT_MODE）
 local options_mod = require('./options')
 local opts        = options_mod.opts
 local DETECT_MODE = options_mod.DETECT_MODE
 local SCRIPT      = mp.get_script_name()
+
+local session     = nil
 
 -- ========= 工具 =========
 local function mode_name(m)
     if m == DETECT_MODE.CHAPTER then return '章节模式' end
     if m == DETECT_MODE.MANUAL then return '手动模式' end
     if m == DETECT_MODE.AUTO then return '自动模式' end
-    if m == DETECT_MODE.SILENCE then return '静音检查模式' end
     return tostring(m)
 end
 
 local function bool_sign(b) return b and '✔' or 'X' end
 
-local function current_outro_len()
-    return (opts.manual_outro_end or 0) - (opts.manual_outro_start or 0)
+local function length_control(kind, title)
+    return {
+        type  = 'number',
+        title = title,
+        hint  = '输入整数（秒）后回车',
+        parse = mutils.parse_integer,
+        get   = function() return session.lens()[kind] end,
+        apply = function(n) return session.edit(kind, n) end,
+        after = function(n)
+            msg.info(title .. ' => ' .. n .. ' 秒')
+        end,
+    }
 end
 
 -- ========= uosc 菜单渲染 =========
@@ -88,7 +98,7 @@ local Controls = {
         get   = function() return opts.enabled end,
         set   = function(v)
             opts.enabled = not not v
-            mutils.save_options()
+            mutils.save_options(opts)
         end,
         after = function(n)
             msg.info('跳过功能：' .. bool_sign(opts.enabled))
@@ -101,65 +111,23 @@ local Controls = {
         options = {
             { id = DETECT_MODE.AUTO, name = '自动模式', hint = '优先章节，无则使用手动模式' },
             { id = DETECT_MODE.CHAPTER, name = '章节模式', hint = '通过章节自动识别' },
-            -- { id = DETECT_MODE.SILENCE, name = '静音检查', hint = '通过识别静音区间自动跳过指定长度' },
             { id = DETECT_MODE.MANUAL, name = '手动模式', hint = '手动指定片头片尾长度' },
         },
         parse   = mutils.parse_integer,
         get     = function() return opts.detect_mode end,
         set     = function(id)
             opts.detect_mode = tonumber(id) or opts.detect_mode
-            mutils.save_options()
+            mutils.save_options(opts)
+            session.refresh()
         end,
         after   = function(n)
             msg.info('检测模式 => ' .. mode_name(opts.detect_mode))
         end,
     },
 
-    intro = {
-        type     = 'number',
-        title    = '片头时长（秒）',
-        hint     = '输入整数（秒）后回车',
-        parse    = mutils.parse_integer,
-        get      = function() return opts.manual_intro_end or 0 end,
-        validate = function(n)
-            if n < 0 then return false, '必须 ≥ 0' end
-            local max = opts.manual_outro_end or math.huge
-            if n > max then return false, '不能超过片尾边界' end
-            return true
-        end,
-        set      = function(n)
-            opts.manual_intro_end = n
-            local play_url = mp.get_property('path')
-            api.set_skip_time(play_url, opts.manual_intro_end, current_outro_len())
-            mutils.save_options()
-        end,
-        after    = function(n)
-            msg.info('片头时长 => ' .. n .. ' 秒')
-        end,
-    },
+    intro = length_control('intro', '片头时长（秒）'),
 
-    outro = {
-        type     = 'number',
-        title    = '片尾时长（秒）',
-        hint     = '输入整数（秒）后回车',
-        parse    = mutils.parse_integer,
-        get      = function() return current_outro_len() end,
-        validate = function(n)
-            if n < 0 then return false, '必须 ≥ 0' end
-            local max = opts.manual_outro_end or math.huge
-            if n > max then return false, '不能超过片尾边界' end
-            return true
-        end,
-        set      = function(n)
-            opts.manual_outro_start = (opts.manual_outro_end or 0) - n
-            local play_url = mp.get_property('path')
-            api.set_skip_time(play_url, opts.manual_intro_end or 0, n)
-            mutils.save_options()
-        end,
-        after    = function(n)
-            msg.info('片尾时长 => ' .. n .. ' 秒')
-        end,
-    },
+    outro = length_control('outro', '片尾时长（秒）'),
 
     skipdur = {
         type     = 'number',
@@ -167,13 +135,11 @@ local Controls = {
         hint     = '输入整数（秒）后回车',
         parse    = mutils.parse_integer,
         get      = function() return opts.manual_skip_duration or 0 end,
-        validate = function(n)
+        apply    = function(n)
             if n < 0 then return false, '必须 ≥ 0' end
-            return true
-        end,
-        set      = function(n)
             opts.manual_skip_duration = n
-            mutils.save_options()
+            mutils.save_options(opts)
+            return true
         end,
         after    = function(n)
             msg.info('快捷跳过时长 => ' .. n .. ' 秒')
@@ -215,25 +181,6 @@ local function build_items()
             selectable = true,
         })
     end
-
-    -- 静音检测参数设置
-    -- table.insert(items, { title = '— 静音检测参数设置 —', keep_open = true, selectable = false })
-
-    -- table.insert(items, {
-    --     title = string.format('静音检测阈值：%d', Controls.silence_db.get()),
-    --     hint = Controls.silence_db.hint,
-    --     value = { 'script-message-to', SCRIPT, 'menu:action', 'open_input', 'silence_db' },
-    --     keep_open = true,
-    --     selectable = true,
-    -- })
-
-    -- table.insert(items, {
-    --     title = string.format('静音持续时间：%s', tostring(Controls.silence_min_dur.get())),
-    --     hint = Controls.silence_min_dur.hint,
-    --     value = { 'script-message-to', SCRIPT, 'menu:action', 'open_input', 'silence_min_dur' },
-    --     keep_open = true,
-    --     selectable = true,
-    -- })
 
     -- 快捷时长
     table.insert(items,
@@ -282,7 +229,7 @@ local function open_main_menu()
 end
 
 -- ========= 统一事件处理 =========
-mp.register_script_message('menu:action', function(op, id, value)
+local function on_action(op, id, value)
     if not op then return end
 
     if op == 'toggle' and id == 'enabled' then
@@ -304,38 +251,24 @@ mp.register_script_message('menu:action', function(op, id, value)
         return open_main_menu()
     end
 
-    if op == 'set_skip_time' and id then
-        local c = Controls[id]; if not c then return end
-        local t = mutils.timepos()
-        local n
-        if id == 'intro' then
-            n = math.floor(t)
-        elseif id == 'outro' then
-            local total = mutils.dur()
-            n = math.floor(total - t)
-        end
-
-        if n and n >= 0 then
-            c.set(n)
-            if c.after then c.after(n) end
+    if op == 'set_skip_time' and (id == 'intro' or id == 'outro') then
+        local ok, reason = session.edit_at(id, mutils.timepos())
+        if ok then
+            Controls[id].after(session.lens()[id])
+        else
+            mutils.show_message('⚠️ ' .. Controls[id].title .. '：' .. reason, 3)
         end
         return open_main_menu()
     end
 
     if op == 'clean_skip_time' then
-        local play_url = mp.get_property('path')
-        api.set_skip_time(play_url, 0, 0)
-        opts.manual_intro_start = 0
-        opts.manual_outro_start = 0
-        opts.manual_intro_end = 0
-        opts.manual_outro_end = 0
-        mutils.save_options()
+        session.clear()
         return open_main_menu()
     end
 
-end)
+end
 
-mp.register_script_message('menu:input', function(id, value)
+local function on_input(id, value)
     local c = Controls[id]; if not c then return end
 
     local n
@@ -347,24 +280,30 @@ mp.register_script_message('menu:input', function(id, value)
         return open_input(id, c.title .. '（无效输入）', '')
     end
 
-    if c.validate then
-        local ok, reason = c.validate(n)
-        if not ok then
-            return open_input(id, c.title .. '(' .. (reason or '非法') .. ')', '')
-        end
+    local ok, reason = c.apply(n)
+    if not ok then
+        return open_input(id, c.title .. '(' .. (reason or '非法') .. ')', '')
     end
 
-    c.set(n)
     if c.after then c.after(n) end
     return open_main_menu()
-end)
+end
 
--- ========= 顶部按钮（uosc） =========
-mp.commandv('script-message-to', 'uosc', 'set-button', 'skip_cfg_btn', utils.format_json({
-    icon    = 'settings',
-    tooltip = '跳过片头片尾设置',
-    command = 'script-message open-skip-menu',
-}))
+local M = {}
 
--- 打开菜单入口（供外部/按钮调用）
-mp.register_script_message('open-skip-menu', open_main_menu)
+function M.init(s)
+    session = s
+
+    mp.register_script_message('menu:action', on_action)
+    mp.register_script_message('menu:input', on_input)
+
+    mp.commandv('script-message-to', 'uosc', 'set-button', 'skip_cfg_btn', utils.format_json({
+        icon    = 'settings',
+        tooltip = '跳过片头片尾设置',
+        command = 'script-message open-skip-menu',
+    }))
+
+    mp.register_script_message('open-skip-menu', open_main_menu)
+end
+
+return M

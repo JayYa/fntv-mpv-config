@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 import io
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest import mock
 
 # 添加src目录到Python路径
@@ -157,13 +157,13 @@ class TestCreatePackageName(unittest.TestCase):
         with zipfile.ZipFile(package) as zf:
             self.assertEqual(zf.namelist(), ["mpv.exe"])
 
-    def test_default_timestamp_uses_local_time(self):
-        fixed = datetime(2026, 11, 14, 9, 8, 7)
+    def test_default_timestamp_uses_beijing_time(self):
+        utc = datetime(2026, 11, 14, 17, 8, 7, tzinfo=timezone.utc)
         with mock.patch("install_manager.datetime") as fake_datetime:
-            fake_datetime.now.return_value = fixed
+            fake_datetime.now.side_effect = lambda tz: utc.astimezone(tz)
             package = self.install_manager.create_package()
 
-        self.assertEqual(package.name, "mpv-package-20261114_090807.zip")
+        self.assertEqual(package.name, "mpv-package-20261115_010807.zip")
 
     def test_malformed_timestamp_rejected(self):
         for bad in ["2026-11-10", "20261110_2243", "20261110_224319\n", "../x"]:

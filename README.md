@@ -1,6 +1,6 @@
 # MPV配置管理工具
 
-一个用于自动下载、配置和打包MPV播放器及其插件的Python工具。支持版本管理、插件热插拔和GitHub Actions自动化构建。
+一个用于自动下载、配置和打包MPV播放器及其插件的Python工具，产出 [fntv-electron](https://github.com/JayYa/fntv-electron) 在 Windows、macOS、Linux 上共用的 MPV 归档 `mpv-package-<时间>.zip`。三个平台用到归档的哪些部分不同，见[平台差异](#平台差异)。支持版本管理、插件热插拔和GitHub Actions自动化构建。
 
 ## 功能特点
 
@@ -10,9 +10,33 @@
 - 📦 **智能打包**: 自动创建便携式安装包
 - 🗜️ **多格式支持**: 支持7z、zip、rar等多种压缩格式
 - 🛠️ **自定义配置**: 支持自定义配置文件
-- 🚀 **CI/CD支持**: GitHub Actions每日自动构建
+- 🚀 **CI/CD支持**: 推送到 `release` 分支时由 GitHub Actions 构建并发布 Release
 - 🚫 **智能过滤**: 双层文件过滤系统，排除不需要的文件
 - ⚙️ **灵活配置**: 分离式配置设计，清晰的文件排除和自定义安装规则
+- 📋 **归档清单**: 生成 `fntv-manifest.json`，打包后跑契约测试，失败不发版
+
+## 平台差异
+
+同一个归档供 fntv-electron 的三个平台使用，但各平台用到的部分不同：
+
+| 平台 | 客户端安装包里带的 | 运行的 mpv | 便携配置同步到 |
+| --- | --- | --- | --- |
+| Windows | 整个归档，含 `mpv.exe` | 附带的 `mpv.exe`，用户也可以自选 | `%APPDATA%\mpv`；自选的 `mpv.exe` 旁边有 `portable_config` 时写那里 |
+| macOS | 只有 `portable_config/` 和 `fntv-manifest.json` | 用户自己安装的 mpv（Homebrew 或 `mpv.app`） | `$XDG_CONFIG_HOME/mpv`，未设时 `~/.config/mpv`；只有 `~/.mpv` 时写 `~/.mpv` |
+| Linux | 同 macOS | 系统里安装的 mpv | 同 macOS |
+
+三个平台上，设了 `MPV_HOME` 时都同步到它。客户端的完整规则见 fntv-electron 的 [external-runtime.md](https://github.com/JayYa/fntv-electron/blob/main/docs/external-runtime.md)。
+
+改归档内容时要注意：
+
+- `mpv` 依赖项来自 `shinchiro/mpv-winbuild-cmake`，只有 Windows 版。macOS 和 Linux 上的 mpv 版本不由本仓库决定，所以 `portable_config` 里的配置和脚本要能在用户自己的 mpv 上工作。`mpv.conf` 分层的生效顺序只在附带的 Windows mpv 上实测过。
+- 插件脚本要兼容三个平台。例如 `thumbfast.lua` 按 mpv 的 `platform` 属性区分 Windows、macOS、Linux 的行为。
+- 配置里的路径用 `~~/` 开头（mpv 配置目录），不要写某个平台的绝对路径。三个平台的配置目录位置不同，`~~/` 都能解析。
+
+构建工具本身也有平台差异。CI 在 Windows 上构建。在 macOS 或 Linux 上本地运行 `run.py` 时：
+
+- py7zr 解不开 mpv 的 7z 包时，程序回退到 7-Zip 命令行，但只查找 `7z.exe`，所以这一步在 macOS 和 Linux 上会失败。
+- 文件排除模式用 Python 的 `fnmatch.fnmatch` 匹配，在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
 
 ## 项目结构
 
@@ -25,19 +49,27 @@ fntv-mpv-config/
 │   ├── download_manager.py # 下载管理
 │   ├── extract_manager.py # 解压管理
 │   ├── install_manager.py # 安装管理
-│   └── log_manager.py     # 日志管理
-├── custom_config/         # 自定义配置目录
-│   ├── mpv/
-│   │   └── input.conf     # MPV快捷键配置
-│   └── uosc/
-│       └── script-opts/
-│           └── uosc.conf  # UOSC插件配置
+│   ├── log_manager.py     # 日志管理
+│   └── manifest.py        # 归档清单生成和契约测试
+├── custom_config/         # 自定义配置目录，按依赖项名分子目录
+│   ├── mpv/               # mpv.conf、input.conf、fntv/defaults.conf、shaders/
+│   ├── uosc/              # script-opts/uosc.conf
+│   ├── uosc_danmaku/      # script-opts/uosc_danmaku.conf、danmaku-history.json
+│   └── thumbfast/         # script-opts/thumbfast.conf
+├── local_packages/        # 本地插件源码（smart_skip、thumbfast）
+├── types/                 # mpv Lua API 类型声明，供编辑器补全，不进安装包
 ├── tests/                 # 测试目录
+├── templates/             # Release 说明模板（release-notes.md）
 ├── .github/workflows/     # GitHub Actions工作流
-├── package_cfg.json          # 主配置文件
-├── requirements.txt      # Python依赖
-├── run.py               # 运行脚本
-└── README.md           # 文档
+├── package_cfg.json       # 主配置文件
+├── manifest-history.json  # 历史归档的文件哈希
+├── requirements.txt       # Python依赖
+├── run.py                 # 运行脚本
+├── run_tests.py           # 测试运行器
+├── validate_config.py     # 检查 package_cfg.json
+├── check_archive.py       # 对打包出的 zip 跑契约测试
+├── build_manifest_history.py # 生成 manifest-history.json
+└── README.md              # 文档
 ```
 
 ## 快速开始
@@ -45,10 +77,11 @@ fntv-mpv-config/
 ### 1. 环境准备
 
 #### 系统要求
-- Python 3.7+
-- 7-Zip (用于解压某些压缩格式)
+- Python 3（CI 用 3.11）
+- 7-Zip（py7zr 解不开 mpv 的 7z 包时用它）
+- 可访问 GitHub。设置 `GITHUB_TOKEN` 或 `GH_TOKEN` 后，GitHub API 请求带认证，不受匿名每小时 60 次的限额
 
-#### 安装7-Zip (必需)
+#### 安装7-Zip (Windows)
 ```bash
 # Windows (使用winget包管理器)
 winget install --id 7zip.7zip
@@ -57,10 +90,12 @@ winget install --id 7zip.7zip
 # 访问 https://7-zip.org/ 下载并安装
 ```
 
+程序先找 `C:\Program Files\7-Zip\7z.exe` 和 `C:\Program Files (x86)\7-Zip\7z.exe`，再找 `PATH` 里的 `7z.exe`。macOS 和 Linux 上找不到它，见[平台差异](#平台差异)。
+
 #### 克隆项目并安装依赖
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/fntv-mpv-config.git
+git clone https://github.com/JayYa/fntv-mpv-config.git
 cd fntv-mpv-config
 
 # 安装Python依赖
@@ -84,7 +119,7 @@ pip install -r requirements.txt
     },
     "uosc_danmaku": {
       "version": "v2.1.0",
-      "enabled": false
+      "enabled": true
     }
   }
 }
@@ -92,25 +127,40 @@ pip install -r requirements.txt
 
 ### 3. 基本使用
 
+一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
+
 ```bash
 # 处理所有启用的依赖项
 python run.py
 
-# 只处理指定的依赖项
-python run.py --deps mpv uosc
+# 只处理指定的依赖项（空格分隔）。契约测试要求所有托管插件都在，所以要同时跳过打包
+python run.py --deps mpv uosc --skip-package
 
-# 列出所有依赖项
+# 列出已启用的依赖项（禁用的不显示）
 python run.py --list
 
-# 启用/禁用依赖项
+# 启用/禁用依赖项（会按 2 空格缩进重写整个 package_cfg.json）
 python run.py --enable uosc_danmaku
 python run.py --disable uosc_danmaku
 
 # 跳过下载，只安装（用于调试）
+# 依次在 temp/<名称>_extracted、temp/<名称>、temp/extracted_<名称>、local_packages/<名称> 里找已有内容
 python run.py --skip-download
 
-# 只下载，不安装
+# 只下载，不安装，也不打包
 python run.py --skip-install
+
+# 安装但不生成清单、不打包
+python run.py --skip-package
+
+# 指定安装包和 Release tag 里的时间（yyyyMMdd_HHmmss）；不传时用当前北京时间
+python run.py --package-timestamp 20261115_120000
+
+# 打包成功后写出构建结果 JSON，同目录生成 release-notes.md（CI 用；预览说明也可用）
+python run.py --result-file ./build/build-result.json
+
+# 并入上一版 Release 的清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
+python run.py --previous-manifest ./fntv-manifest.json
 
 # 使用本地包文件
 python run.py --deps local_plugin  # 配置文件中指定了local_path的依赖项
@@ -191,7 +241,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 - **文件夹**：已解压的目录结构，系统会自动检测并跳过解压步骤
 
 ### 路径规则
-- **相对路径**：相对于项目根目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
+- **相对路径**：相对于 `temp_dir` 的上一级目录。`temp_dir` 是默认的 `./temp` 时就是项目根目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
 - **绝对路径**：完整路径，如 `C:/packages/file.zip` 或 `C:/packages/folder`
 
 ### 使用场景
@@ -214,12 +264,14 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 ```json
 {
-  "name": "fntv-mpv-config",
+  "name": "fntv-mpv",                  // 输出子目录名：安装内容放在 <输出目录>/fntv-mpv/
   "version": "1.0.0",
   "config": {
-    "output_dir": "./output",          // 输出目录
-    "temp_dir": "./temp",              // 临时目录
-    "custom_config_dir": "./custom_config"  // 自定义配置目录
+    "output_dir": "../fntv-electron/third_party",  // 输出目录：同级检出的 fntv-electron
+    "temp_dir": "./temp",              // 临时目录，运行结束后整个删除
+    "custom_config_dir": "./custom_config",  // 自定义配置目录
+    "github_proxy": "https://ghfast.top",    // 下载链接的代理前缀
+    "enable_proxy": false              // true 时下载链接加代理前缀；GitHub API 请求不走代理
   },
   "dependencies": {
     "mpv": {
@@ -230,11 +282,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
       "format": "7z",
       "enabled": true,
       "exclude_files": [                // 排除不需要的文件
-        "doc/*",
-        "installer/*", 
-        "*.bat",
-        "*.md",
-        "LICENSE*"
+        "doc/*"
       ]
     },
     "uosc": {
@@ -244,7 +292,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
       "filename_pattern": "uosc",
       "format": "zip",
       "enabled": true,
-      "exclude_files": [                // 排除文档和许可证文件
+      "exclude_files": [                // 有 custom_install_rules 时不生效
         "*.md",
         "LICENSE*"
       ],
@@ -269,8 +317,10 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 #### 核心配置参数
 
-- `exclude_files`: 排除文件数组，在安装时排除不需要的文件和目录
+- `exclude_files`: 排除文件数组，在默认安装时排除不需要的文件和目录。依赖项有 `custom_install_rules` 时不生效
 - `custom_install_rules`: 自定义配置安装规则数组（可选）
+- `url`、`version`、`filename_pattern`、`format`: 网络依赖项必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
+- `version` 也写进清单的 `components`
 
 #### 输出目录
 
@@ -284,29 +334,41 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 #### exclude_files 排除模式
 
-`exclude_files` 用于排除下载内容中不需要的文件，支持glob模式：
+`exclude_files` 用于排除下载内容中不需要的文件，模式作用于相对内容根的路径：
 
 ```json
 {
   "exclude_files": [
-    "*.md",              // 排除所有markdown文档
+    "*.md",              // 排除任意深度的markdown文档（* 也匹配 /）
     "LICENSE*",          // 排除许可证文件
     "doc/*",            // 排除doc目录下的所有文件
     "installer/*",      // 排除installer目录
     "*.bat",            // 排除批处理文件
-    "**/.github/**",    // 排除GitHub工作流目录
-    "**/test/**",       // 排除测试目录
-    "**/docs/**"        // 排除文档目录
+    ".github/**",       // 排除任意一级名为.github的目录
+    "test/**",          // 排除任意一级名为test的目录
+    "docs/**"           // 排除任意一级名为docs的目录
   ]
 }
 ```
+
+模式不是完整的 glob，`exclude_files`、`filter`、`exclude` 都按下表匹配（`InstallManager._matches_pattern`）：
+
+| 模式 | 匹配 |
+| --- | --- |
+| `**/*` | 所有文件 |
+| `**/<文件名模式>` | 任意深度下文件名匹配的文件，如 `**/*.lua`。`**/test/**` 这种只比较文件名，匹配不到任何文件 |
+| `<目录>/**` | 路径中任意一级目录名等于 `<目录>` 的文件 |
+| `<前缀>/**/<后缀>` | 路径同时含 `<前缀>` 和 `<后缀>` 两个子串的文件 |
+| 其他 | `fnmatch.fnmatch` 匹配整个相对路径，`*` 也匹配 `/` |
+
+`fnmatch.fnmatch` 在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
 
 #### custom_install_rules 自定义安装规则
 
 `custom_install_rules` 用于定义特殊的文件安装规则，参考 Node.js extraFiles 功能设计：
 
 - `from`: 源目录路径（相对于解压后的根目录，可以为空）
-- `to`: 目标目录路径（相对于输出根目录）
+- `to`: 目标目录路径（相对于输出子目录 `<输出目录>/<name>/`，不是相对于 `portable_config/`）
 - `filter`: 文件过滤器数组，支持glob模式（可选，默认为 `["**/*"]`）
 - `exclude`: 排除模式数组，支持glob模式（可选）
 
@@ -318,19 +380,22 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 **支持的文件模式**：
   - `**/*`: 所有文件
   - `*.lua`: 所有Lua文件
-  - `**/script-opts/**`: script-opts目录下的所有文件
+  - `script-opts/**`: script-opts目录下的所有文件
   - `*.md`: 排除所有Markdown文件
+  - 完整规则见上面的模式表
 
 ### 配置工作原理
 
-1. **默认安装**: 所有文件默认会被安装到相应位置
-2. **文件排除**: 应用 `exclude_files` 模式排除不需要的文件
-3. **自定义规则**: 如果定义了 `custom_install_rules`，则按规则精确安装文件
+1. **默认安装**: 没有 `custom_install_rules` 时，`mpv` 装到输出子目录根（与 `portable_config/` 同级），其他依赖项装到 `portable_config/scripts/<依赖项名>/`
+2. **文件排除**: 默认安装时应用 `exclude_files` 模式排除不需要的文件
+3. **自定义规则**: 如果定义了 `custom_install_rules`，则只按规则安装文件，排除只看规则里的 `exclude`
+4. **自定义配置**: 最后把 `custom_config/<依赖项名>/` 复制进 `portable_config/`
 
 **安装路径处理**：
-- 目标路径统一相对于输出目录处理
+- 目标路径统一相对于输出子目录 `<输出目录>/<name>/` 处理
 - 支持 `portable_config/` 前缀的完整路径
-- 空目标路径默认安装到 `portable_config` 根目录
+- 空目标路径安装到输出子目录根，与 `portable_config/` 同级
+- `from` 不存在时记一条警告并跳过该规则
 
 **配置规则示例**：
 ```json
@@ -338,7 +403,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
   "from": "scripts",                    // 从解压包的scripts目录
   "to": "portable_config/scripts",      // 安装到输出目录的portable_config/scripts
   "filter": ["**/*.lua"],               // 只包含lua文件
-  "exclude": ["**/test/**"]             // 排除测试目录
+  "exclude": ["test/**"]                // 排除测试目录
 }
 ```
 
@@ -399,50 +464,61 @@ python run.py --clean all       # 清理所有临时文件和构建产物
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
     "version": "20261108",
     "exclude_files": [
-      "doc/*",             // 排除文档目录
-      "installer/*",       // 排除安装程序
-      "*.bat",            // 排除批处理文件
-      "*.md",             // 排除文档
-      "LICENSE*"          // 排除许可证
+      "doc/*"              // 排除文档目录
     ]
   }
 }
 ```
 
+这是 Windows 构建的 mpv，装到输出子目录根，只在 Windows 上被客户端使用。macOS 和 Linux 只用归档里的 `portable_config/`，见[平台差异](#平台差异)。
+
 ## 自定义配置
 
-在 `custom_config` 目录下放置自定义配置文件，程序会自动将它们复制到最终的portable_config目录中。
+在 `custom_config/<依赖项名>/` 下放置自定义配置文件。安装某个依赖项后，程序把对应子目录里的文件按原相对路径复制进最终的portable_config目录，覆盖同名文件。没有对应依赖项的子目录不会被复制，`custom_config` 根目录下也不要放散文件（测试会检查）。
 
-### 目录结构示例
+这些文件在三个平台上都会同步到用户的 mpv 配置目录，写法要兼容三个平台，见[平台差异](#平台差异)。新增文件还要先在 `src/manifest.py` 的 `ROLE_RULES` 里有归属，见[归档清单](#归档清单-fntv-manifestjson)。
+
+### 目录结构
 
 ```
 custom_config/
 ├── mpv/
 │   ├── input.conf        # 快捷键配置
-│   └── mpv.conf          # MPV主配置
+│   ├── mpv.conf          # MPV主配置（薄文件，给用户改）
+│   ├── fntv/
+│   │   └── defaults.conf # 托管的默认值
+│   └── shaders/          # Anime4K着色器
 ├── uosc/
 │   └── script-opts/
 │       └── uosc.conf     # UOSC插件配置
-└── scripts/
-    └── custom.lua        # 自定义脚本
+├── uosc_danmaku/
+│   ├── script-opts/
+│   │   └── uosc_danmaku.conf  # 弹幕插件配置
+│   └── danmaku-history.json   # 弹幕历史的种子
+└── thumbfast/
+    └── script-opts/
+        └── thumbfast.conf     # 缩略图插件配置
 ```
 
 ## GitHub Actions 自动化
 
 项目包含GitHub Actions工作流，支持：
 
-- **每日自动构建**: 每天自动检查更新并构建
+- **推送触发**: 推送到 `release` 分支时构建（没有定时触发）
 - **手动触发**: 可以手动触发构建
-- **自动发布**: 构建完成后自动创建Release
+- **自动发布**: 只在 `release` 分支上创建 Release；其他分支只上传构建产物
 
 ### 配置说明
 
 工作流文件位于 `.github/workflows/daily-build.yml`，主要特性：
 
-- 使用Windows环境进行构建
-- 自动上传构建产物
-- 创建带时间戳的Release
-- 支持构建失败时的错误处理
+- 使用Windows环境进行构建，产出的同一个 zip 供三个平台使用
+- 构建前先跑 `run_tests.py`，失败不构建
+- 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
+- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
+- 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
+- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：启用的插件、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
+- 自动上传构建产物，保留 30 天
 
 ## 归档清单 fntv-manifest.json
 
@@ -468,7 +544,7 @@ profile=fntv-defaults
 
 ### 契约测试
 
-打包后自动跑契约测试（`run.py` 内部一次，workflow 里再用 `check_archive.py` 带 tag 跑一次）：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减。任何一条失败都不会发版。手工检查一个 zip：
+打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip：
 
 ```bash
 python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json]
@@ -482,7 +558,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 #### 1. exclude_files - 文件排除层
 - **目的**: 排除下载内容中不需要的文件
-- **时机**: 在安装过程中应用
+- **时机**: 在默认安装过程中应用；有 `custom_install_rules` 时不生效
 - **适用场景**: 排除文档、许可证、调试文件等
 
 #### 2. custom_install_rules - 自定义安装层  
@@ -494,19 +570,20 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 ### 处理流程
 
 ```
-下载文件 → 解压 → 选择安装模式 → 应用exclude_files → 复制文件
+下载文件 → 解压 → 选择安装模式 → 过滤并复制文件 → 复制custom_config → 生成清单 → 打包 → 契约测试
 ```
 
-1. **下载解压**: 从GitHub下载并解压文件
+1. **下载解压**: 从GitHub下载并解压文件；本地文件夹跳过解压
 2. **安装模式选择**:
-   - 如果定义了`custom_install_rules`: 使用自定义规则安装
-   - 否则: 使用默认安装（直接复制到相应目录）
-3. **文件过滤**: 在任何安装模式中都会应用`exclude_files`排除规则
+   - 如果定义了`custom_install_rules`: 使用自定义规则安装，按规则的`filter`和`exclude`过滤
+   - 否则: 使用默认安装（直接复制到相应目录），按`exclude_files`过滤
+3. **自定义配置**: 把`custom_config/<依赖项名>/`复制进`portable_config/`
+4. **打包**: 生成`fntv-manifest.json`，打包zip并跑契约测试
 
 ### 配置优先级
 
 - `custom_install_rules` > 默认安装
-- `exclude_files` 在任何安装方式中都会被应用
+- `exclude_files` 只在默认安装中应用
 - 自定义规则中的 `exclude` > `filter`
 
 ## 开发指南
@@ -520,6 +597,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 3. **ExtractManager**: 支持多种压缩格式的解压
 4. **InstallManager**: 根据规则安装文件和配置
 5. **LogManager**: 统一的日志管理
+6. **manifest.py**: 生成归档清单，对zip跑契约测试
 
 ### 扩展性
 
@@ -539,23 +617,24 @@ python run.py --skip-download
 # 不清理临时文件（用于检查中间结果）
 python run.py --skip-cleanup
 
-# 只处理特定依赖项
-python run.py --deps uosc,uosc_danmaku
+# 只处理特定依赖项（空格分隔），不打包
+python run.py --deps uosc uosc_danmaku --skip-package
+
+# 检查 package_cfg.json：缺少的字段、不存在的本地路径、不完整的安装规则
+python validate_config.py
 ```
 
 #### 文件排除调试
 
-当使用`--log-level DEBUG`时，可以看到文件排除过程的详细信息：
+当使用`--log-level DEBUG`时，可以看到每条规则的源和目标路径，以及每个复制的文件：
 
 ```
-DEBUG - 应用exclude_files: ['*.md', 'LICENSE*']
-DEBUG - 应用自定义配置规则 [uosc]: temp\uosc_extracted\scripts -> output\fntv-mpv-config\portable_config\scripts
+DEBUG - 排除文件: ['doc/*']
+DEBUG - 应用自定义配置规则 [uosc]: temp\uosc_extracted\scripts -> output\fntv-mpv\portable_config\scripts
 DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
-DEBUG - 排除文件: README.md (匹配模式: *.md)
-DEBUG - 排除文件: LICENSE (匹配模式: LICENSE*)
 ```
 
-这有助于验证排除规则和自定义配置规则是否按预期工作。
+日志不列出被排除的文件。加上`--skip-cleanup`保留临时目录，对照解压结果和复制日志，就能看出哪些文件被排除了。
 
 ## 自定义配置规则详解
 
@@ -566,7 +645,7 @@ DEBUG - 排除文件: LICENSE (匹配模式: LICENSE*)
 ```json
 {
   "from": "source_path",    // 源路径（相对于解压目录）
-  "to": "target_path",      // 目标路径（相对于输出目录）
+  "to": "target_path",      // 目标路径（相对于输出子目录）
   "filter": ["**/*"],       // 可选：包含过滤器
   "exclude": []             // 可选：排除过滤器
 }
@@ -580,9 +659,9 @@ DEBUG - 排除文件: LICENSE (匹配模式: LICENSE*)
    - 示例：`"scripts"`、`"fonts"`、`""`
 
 2. **目标路径 (`to`)**：
-   - 统一相对于输出目录处理
+   - 统一相对于输出子目录 `<输出目录>/<name>/` 处理
    - 支持完整路径如 `"portable_config/scripts"`
-   - 空字符串表示默认安装到 `portable_config` 根目录
+   - 空字符串表示安装到输出子目录根，与 `portable_config/` 同级
 
 ### 实际应用示例
 
@@ -601,7 +680,7 @@ DEBUG - 排除文件: LICENSE (匹配模式: LICENSE*)
   "from": "src", 
   "to": "portable_config/scripts/custom",
   "filter": ["**/*.lua", "**/*.js"],
-  "exclude": ["**/test/**", "**/*.md"]
+  "exclude": ["test/**", "**/*.md"]
 }
 ```
 
@@ -611,13 +690,15 @@ DEBUG - 排除文件: LICENSE (匹配模式: LICENSE*)
   "from": "",  // 整个解压目录
   "to": "portable_config",
   "filter": ["**/*.lua"],
-  "exclude": ["**/docs/**", "**/examples/**"]
+  "exclude": ["docs/**", "examples/**"]
 }
 ```
 
+`thumbfast` 就是这种用法：`"from": ""`、`"to": "portable_config/scripts"`、`"filter": ["thumbfast.lua"]`，只把一个文件装进 `scripts/`。
+
 ## 运行测试
 
-项目包含完整的单元测试，支持多种运行方式：
+项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络：
 
 ### 推荐方式：使用内置测试运行器
 
@@ -639,26 +720,16 @@ python run_tests.py
 python tests/test_all.py
 ```
 
-### 使用pytest（如果遇到卡死问题，请使用上述方式）
-
-```bash
-# 使用pytest（可能在某些环境中卡死）
-python -m pytest tests/ -v
-```
-
 ### 测试覆盖范围
 
-- ✅ **ConfigManager**: 配置加载、验证、依赖项管理
-- ✅ **DownloadManager**: URL解析、初始化测试  
+- ✅ **ConfigManager**: 配置加载、验证、依赖项管理、输出目录优先级
+- ✅ **DownloadManager**: URL解析、初始化、`GITHUB_TOKEN` 认证、本地包
 - ✅ **ExtractManager**: 格式识别
-- ✅ **InstallManager**: 模式匹配、排除功能测试
+- ✅ **InstallManager**: 模式匹配、排除功能、默认安装和自定义规则、安装包命名
+- ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程
+- ✅ **package_cfg.json**: 固定的依赖版本和下载地址
 
-### 故障排除
-
-如果`pytest`命令卡死或无响应：
-1. 使用`python run_tests.py`代替
-2. 或直接运行`python tests/test_all.py`
-3. 检查网络连接（某些测试可能需要访问GitHub API）
+各测试文件的说明见 [tests/README.md](tests/README.md)。
 
 ## 常见问题
 
@@ -674,8 +745,10 @@ winget install --id 7zip.7zip
 # 3. 确保7z.exe在系统PATH中或安装在默认位置
 ```
 
+macOS 和 Linux 上程序找不到 `7z`，这一步无法完成，在 Windows 上构建，见[平台差异](#平台差异)。
+
 ### Q: 下载失败怎么办？
-A: 检查网络连接，确认GitHub访问正常。可以使用`--log-level DEBUG`查看详细错误信息。
+A: 检查网络连接，确认GitHub访问正常。GitHub API 返回 403 时设置 `GITHUB_TOKEN`。国内网络可以把 `config.enable_proxy` 设为 `true`。可以使用`--log-level DEBUG`查看详细错误信息。
 
 ### Q: 如何添加新的插件？
 A: 在`package_cfg.json`的`dependencies`中添加新的插件配置。对于简单插件，只需配置基本参数和排除规则；对于复杂插件，可以使用自定义配置规则精确控制文件安装位置。
@@ -687,7 +760,8 @@ A: 在`package_cfg.json`的`dependencies`中添加新的插件配置。对于简
     "name": "新插件",
     "url": "https://github.com/author/plugin/releases",
     "version": "1.0.0",
-    "exclude_files": ["*.md", "LICENSE*"],
+    "filename_pattern": "plugin",
+    "format": "zip",
     "custom_install_rules": [
       {
         "from": "src",
@@ -703,32 +777,34 @@ A: 在`package_cfg.json`的`dependencies`中添加新的插件配置。对于简
 A: 确认配置文件放在正确的`custom_config`目录结构中，并且文件名和路径正确。
 
 ### Q: GitHub Actions构建失败？
-A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。
+A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。日志里有“契约测试失败”时，按列出的条目改归档内容，常见原因是新增文件没有在 `ROLE_RULES` 里定归属。
 
 ### Q: 排除模式不生效怎么办？
 A: 
 1. 使用`--log-level DEBUG`查看排除过程详细信息
-2. 确认排除模式语法正确，使用正斜杠`/`作为路径分隔符
-3. 注意排除模式区分大小写
+2. 确认排除模式语法正确，对照[模式表](#exclude_files-排除模式)，使用正斜杠`/`作为路径分隔符
+3. 注意大小写：Windows 上不区分，macOS 和 Linux 上区分
 4. 确认排除的是相对于`from`目录的相对路径
 5. 检查是否同时被`filter`包含和`exclude`排除（exclude优先）
+6. 依赖项有`custom_install_rules`时，`exclude_files`不生效，要写进规则的`exclude`
 
 #### 排除模式语法示例：
 ```json
 "exclude": [
   "*.md",           // ✅ 正确：排除所有.md文件
-  "*.MD",           // ⚠️  注意：区分大小写，只排除.MD文件
+  "*.MD",           // ⚠️  注意：Windows 上同 *.md；macOS 和 Linux 上只排除.MD文件
   "LICENSE*",       // ✅ 正确：排除以LICENSE开头的文件
-  "**/.git*",       // ✅ 正确：排除任意深度的.git相关文件
-  "test\\**",       // ❌ 错误：应使用正斜杠 "test/**"
-  "docs/**/*.md"    // ✅ 正确：排除docs目录下的所有.md文件
+  "**/.git*",       // ✅ 正确：排除任意深度下文件名以.git开头的文件，如.gitignore
+  "test/**",        // ✅ 正确：排除任意一级名为test的目录
+  "**/test/**",     // ❌ 错误：只比较文件名，匹配不到任何文件，应写 "test/**"
+  "docs/**/*.md"    // ❌ 错误：按子串比较 "docs" 和 "*.md"，匹配不到；可用 "*.md" 加规则的 from 限定目录
 ]
 ```
 
 ### Q: 如何验证排除模式是否正确？
 A: 使用DEBUG模式运行特定依赖项：
 ```bash
-python run.py --deps plugin_name --log-level DEBUG --skip-cleanup
+python run.py --deps plugin_name --log-level DEBUG --skip-cleanup --skip-package
 ```
 然后检查输出日志和生成的文件。
 
@@ -738,6 +814,8 @@ python run.py --deps plugin_name --log-level DEBUG --skip-cleanup
 
 
 ## 更新日志
+
+v1.0.1 之后不再维护版本号，每次发版的内容见 [GitHub Releases](https://github.com/JayYa/fntv-mpv-config/releases)（tag `fntv-mpv-v<时间>`）。
 
 ### v1.0.1 (2025-08-24)
 - 🔧 **重构自定义配置规则处理**：参考 Node.js extraFiles 功能重新设计
