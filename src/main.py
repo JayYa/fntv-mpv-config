@@ -3,7 +3,6 @@
 协调各个模块的工作，提供命令行界面
 """
 import argparse
-import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -15,12 +14,9 @@ from .extract_manager import ExtractManager, ExtractError
 from .install_manager import (InstallManager, InstallError, current_package_timestamp,
                               validate_package_timestamp)
 from .log_manager import LogManager
-from .manifest import (archive_version_for, build_manifest, check_archive,
-                       check_manifest_asset, load_history, write_manifest)
+from .manifest import archive_version_for, build_manifest, write_manifest
+from .package_archive import KnownHashes, contract_test
 from .release import BuildResult, Dependency, PackageArchive, write_build_result
-
-# 提交在仓库里的历史哈希
-DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
 
 
 class MPVConfigManager:
@@ -146,20 +142,14 @@ class MPVConfigManager:
                 if package_timestamp is None:
                     package_timestamp = current_package_timestamp()
                 archive_version = archive_version_for(package_timestamp)
-                history = load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH)
-                previous_manifest = None
+                known = KnownHashes.load(history_path, previous_manifest_path)
                 if previous_manifest_path:
-                    with open(previous_manifest_path, 'r', encoding='utf-8') as f:
-                        previous_manifest = json.load(f)
-                    self.logger.info(
-                        f"并入上一版清单: {previous_manifest.get('archiveVersion', previous_manifest_path)}"
-                    )
+                    self.logger.info(f"并入上一版清单: {previous_manifest_path}")
                 manifest = build_manifest(
                     self.install_manager.portable_config_dir,
                     archive_version,
                     self._get_components(),
-                    history=history,
-                    previous_manifest=previous_manifest,
+                    known=known,
                 )
                 write_manifest(self.install_manager.output_dir, manifest)
                 self.logger.info(f"清单已生成: {archive_version}，{len(manifest['files'])} 个文件")
@@ -170,9 +160,8 @@ class MPVConfigManager:
                 manifest_asset_path = write_manifest(package_path.parent, manifest)
                 self.logger.info(f"清单资产已写入: {manifest_asset_path}")
 
-                errors = check_archive(package_path, archive_version=archive_version,
-                                       history=history, previous_manifest=previous_manifest)
-                errors += check_manifest_asset(package_path, manifest_asset_path)
+                errors = contract_test(package_path, known, archive_version=archive_version,
+                                       manifest_asset=manifest_asset_path)
                 if errors:
                     for error in errors:
                         self.logger.error(f"契约测试失败: {error}")
