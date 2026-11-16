@@ -1,5 +1,3 @@
-"""安装包构建：已知哈希、契约测试入口、打包与命名"""
-
 import json
 import shutil
 import sys

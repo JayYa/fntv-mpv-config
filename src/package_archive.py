@@ -1,8 +1,4 @@
-"""
-安装包（package archive）的构建与契约测试
-
-调用方只需要这里的接口；清单格式、归属规则、已知哈希的合并和各项检查是 manifest.py 里的实现。
-"""
+"""安装包（package archive）的构建与契约测试"""
 import re
 import zipfile
 from dataclasses import dataclass

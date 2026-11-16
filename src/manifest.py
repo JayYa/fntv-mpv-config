@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Dict, FrozenSet, List, Mapping, Optional, Set, Tuple
 
 MANIFEST_NAME = "fntv-manifest.json"
-# 提交在仓库里的历史哈希
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
 FORMAT_VERSION = 1
 PORTABLE_CONFIG = "portable_config"
 
 ROLES = ("managed", "config", "seed")
+ROLES_KEPT_BY_CLIENT = ("config", "seed")
 
 # 归属规则：按顺序匹配相对 portable_config 的正斜杠路径，先命中的生效
 ROLE_RULES = [
@@ -135,8 +135,6 @@ def history_from_archives(archives: List[Tuple[str, Path]]) -> dict:
 class KnownHashes:
     """
     已知哈希：提交的历史哈希与上一版清单合并后，每个路径出现过的全部 sha256
-
-    清单生成把它们并进 knownHashes 和 obsolete，契约测试检查它们只增不减。
     """
     hashes: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     previously_obsolete: FrozenSet[str] = frozenset()
@@ -180,8 +178,7 @@ class KnownHashes:
         return set(self.hashes.get(path, ()))
 
     def is_obsolete_candidate(self, path: str) -> bool:
-        """本次没有的历史路径是否进 obsolete：托管文件进，config/seed 不进（客户端一律保留）"""
-        return path in self.previously_obsolete or role_of(path) not in ("config", "seed")
+        return path in self.previously_obsolete or role_of(path) not in ROLES_KEPT_BY_CLIENT
 
 
 def build_manifest(portable_config_dir: Path, archive_version: str,
