@@ -167,7 +167,9 @@ class TestRepositoryCustomConfig(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_uosc_danmaku_config_installed_from_dependency_dir(self):
-        self.install_manager.install_dependency("uosc_danmaku", {}, None)
+        empty_content = Path(self.temp_dir) / "content"
+        empty_content.mkdir()
+        self.install_manager.install_dependency("uosc_danmaku", {}, empty_content)
 
         portable = self.install_manager.portable_config_dir
         self.assertEqual(

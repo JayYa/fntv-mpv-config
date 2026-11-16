@@ -129,13 +129,13 @@ pip install -r requirements.txt
 
 ### 3. 基本使用
 
-一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
+一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
 
 ```bash
 # 处理所有启用的依赖项
 python run.py
 
-# 只处理指定的依赖项（空格分隔）。契约测试要求所有托管插件都在，所以要同时跳过打包
+# 只处理指定的依赖项（空格分隔）。只装一部分依赖打不出完整的安装包，必须同时带 --skip-package 或 --skip-install
 python run.py --deps mpv uosc --skip-package
 
 # 列出已启用的依赖项（禁用的不显示）
@@ -145,8 +145,9 @@ python run.py --list
 python run.py --enable uosc_danmaku
 python run.py --disable uosc_danmaku
 
-# 跳过下载，只安装（用于调试）
-# 依次在 temp/<名称>_extracted、temp/<名称>、temp/extracted_<名称>、local_packages/<名称> 里找已有内容
+# 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败。
+# 默认运行结束会删掉 temp，所以先带 --skip-cleanup 联网构建一次
+python run.py --skip-cleanup
 python run.py --skip-download
 
 # 只下载，不安装，也不打包
@@ -165,15 +166,15 @@ python run.py --result-file ./build/build-result.json
 python run.py --previous-manifest ./fntv-manifest.json
 
 # 使用本地包文件
-python run.py --deps local_plugin  # 配置文件中指定了local_path的依赖项
+python run.py --deps local_plugin --skip-package  # 配置文件中指定了local_path的依赖项
 
 # 输出到其它目录（不改 package_cfg.json；也可设环境变量 FNTV_MPV_OUTPUT_DIR）
 python run.py --output-dir ./output
 
 # 清理下载和构建目录
-python run.py --clean temp      # 清理临时下载文件
-python run.py --clean output    # 清理构建的安装包
-python run.py --clean all       # 清理所有临时文件和构建产物
+python run.py --clean temp      # 删掉整个 temp_dir
+python run.py --clean output    # 删掉 <输出目录>/fntv-mpv/、mpv-package-<时间>.zip 和 fntv-manifest.json，输出目录里的其它文件不动
+python run.py --clean all       # 两者都删
 ```
 
 ## 本地包支持
@@ -243,7 +244,7 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 - **文件夹**：已解压的目录结构，系统会自动检测并跳过解压步骤
 
 ### 路径规则
-- **相对路径**：相对于 `temp_dir` 的上一级目录。`temp_dir` 是默认的 `./temp` 时就是项目根目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
+- **相对路径**：相对于配置文件（`package_cfg.json`）所在目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
 - **绝对路径**：完整路径，如 `C:/packages/file.zip` 或 `C:/packages/folder`
 
 ### 使用场景
@@ -257,8 +258,8 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 - 支持所有网络下载支持的格式（zip、7z、rar等）
 - 文件夹方式支持直接指向已解压的目录
 - 安装规则（exclude_files、custom_install_rules）完全相同
-- 本地文件会被复制到临时目录，保持一致的处理流程
-- 文件夹方式会自动跳过解压步骤，提高处理效率
+- 本地压缩包直接解压到 `temp/<名称>/content/`，不先复制
+- 本地文件夹直接作为内容目录安装，不复制、不解压
 
 ## 配置文件详解
 
@@ -595,12 +596,11 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 项目采用模块化设计，各模块职责明确：
 
 1. **ConfigManager**: 配置文件的读取、验证和管理
-2. **DownloadManager**: 处理各种下载源的文件下载
-3. **ExtractManager**: 支持多种压缩格式的解压
-4. **InstallManager**: 根据规则安装文件和配置
-5. **LogManager**: 统一的日志管理
-6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes.load` 读取并合并已知哈希（类定义在 `manifest.py`，从这里导出）
-7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查，只被 `package_archive.py` 使用
+2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 DownloadManager（GitHub Release 下载）和 ExtractManager（多种压缩格式的解压）
+3. **InstallManager**: 先清空 project 目录，再按规则把内容目录和 custom_config 装进去
+4. **LogManager**: 统一的日志管理
+5. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes.load` 读取并合并已知哈希（类定义在 `manifest.py`，从这里导出）
+6. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查，只被 `package_archive.py` 使用
 
 ### 扩展性
 
@@ -614,7 +614,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 # 启用详细日志（推荐用于排除模式调试）
 python run.py --log-level DEBUG
 
-# 跳过下载步骤（用于测试安装逻辑）
+# 离线重跑（用上次 --skip-cleanup 留下的压缩包，用于测试安装逻辑）
 python run.py --skip-download
 
 # 不清理临时文件（用于检查中间结果）
@@ -633,8 +633,8 @@ python validate_config.py
 
 ```
 DEBUG - 排除文件: ['doc/*']
-DEBUG - 应用自定义配置规则 [uosc]: temp\uosc_extracted\scripts -> output\fntv-mpv\portable_config\scripts
-DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
+DEBUG - 应用自定义配置规则 [uosc]: temp\uosc\content\scripts -> output\fntv-mpv\portable_config\scripts
+DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 ```
 
 日志不列出被排除的文件。加上`--skip-cleanup`保留临时目录，对照解压结果和复制日志，就能看出哪些文件被排除了。
@@ -726,10 +726,11 @@ python tests/test_all.py
 ### 测试覆盖范围
 
 - ✅ **ConfigManager**: 配置加载、验证、依赖项管理、输出目录优先级
-- ✅ **DownloadManager**: URL解析、初始化、`GITHUB_TOKEN` 认证、本地包
+- ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
+- ✅ **DownloadManager**: `GITHUB_TOKEN` 认证
 - ✅ **ExtractManager**: 格式识别
 - ✅ **InstallManager**: 模式匹配、排除功能、默认安装和自定义规则、安装包命名
-- ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程
+- ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程（含上次构建的残留不进安装包）
 - ✅ **package_cfg.json**: 固定的依赖版本和下载地址
 
 各测试文件的说明见 [tests/README.md](tests/README.md)。

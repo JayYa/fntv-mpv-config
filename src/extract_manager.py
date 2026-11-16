@@ -5,7 +5,6 @@
 import os
 import zipfile
 import py7zr
-import shutil
 from typing import Union
 from pathlib import Path
 import logging
@@ -19,14 +18,7 @@ class ExtractError(Exception):
 class ExtractManager:
     """解压管理器"""
     
-    def __init__(self, temp_dir: Path):
-        """
-        初始化解压管理器
-        
-        Args:
-            temp_dir: 临时目录
-        """
-        self.temp_dir = Path(temp_dir)
+    def __init__(self):
         self.logger = logging.getLogger(__name__)
         
         # 支持的格式和对应的处理函数
@@ -40,27 +32,23 @@ class ExtractManager:
             'xz': self._extract_tar
         }
     
-    def extract_archive(self, archive_path: Path, extract_to: Path = None) -> Path:
+    def extract_archive(self, archive_path: Path, extract_to: Path) -> Path:
         """
         解压压缩文件
-        
+
         Args:
             archive_path: 压缩文件路径
-            extract_to: 解压目标目录，如果为None则使用临时目录
-            
+            extract_to: 解压目标目录
+
         Returns:
             解压后的目录路径
-            
+
         Raises:
             ExtractError: 解压失败
         """
         if not archive_path.exists():
             raise ExtractError(f"压缩文件不存在: {archive_path}")
-        
-        # 确定解压目标目录
-        if extract_to is None:
-            extract_to = self.temp_dir / f"{archive_path.stem}_extracted"
-        
+
         extract_to = Path(extract_to)
         extract_to.mkdir(parents=True, exist_ok=True)
         
@@ -111,7 +99,8 @@ class ExtractManager:
     def _extract_7z(self, archive_path: Path, extract_to: Path):
         """解压7Z文件"""
         try:
-            with py7zr.SevenZipFile(archive_path, mode='r') as z:
+            # 自己打开文件：py7zr 在构造时报错（如 BCJ2）会泄漏句柄，Windows 上之后删不掉 temp
+            with open(archive_path, 'rb') as f, py7zr.SevenZipFile(f, mode='r') as z:
                 z.extractall(extract_to)
         except Exception as e:
             error_msg = str(e)
@@ -201,17 +190,3 @@ class ExtractManager:
         
         # 否则返回解压目录本身
         return extract_path
-    
-    def cleanup_extracted(self, extract_path: Path):
-        """
-        清理解压的文件
-        
-        Args:
-            extract_path: 解压目录
-        """
-        try:
-            if extract_path.exists():
-                shutil.rmtree(extract_path)
-                self.logger.info(f"已清理解压目录: {extract_path}")
-        except Exception as e:
-            self.logger.warning(f"清理解压目录失败: {e}")
