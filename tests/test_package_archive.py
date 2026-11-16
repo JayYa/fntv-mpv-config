@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                                  is_package_archive_name)
-from tests.test_manifest import (SHA256_ABC, SHA256_DEF, SHA256_GHI, VALID_PORTABLE_CONFIG,
-                                 write_portable_config)
+from tests.test_manifest import (CLIENT_LAYOUT, SHA256_ABC, SHA256_DEF, SHA256_GHI,
+                                 VALID_PORTABLE_CONFIG, write_portable_config)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -69,7 +69,7 @@ class TestBuildPackageArchive(unittest.TestCase):
 
     def build(self, known=None, timestamp="20261114_235959"):
         return build_package_archive(self.project, {"uosc": "5.13.0"}, known or KnownHashes(),
-                                     timestamp=timestamp)
+                                     CLIENT_LAYOUT, timestamp=timestamp)
 
     def test_names_everything_after_the_timestamp(self):
         package = self.build()

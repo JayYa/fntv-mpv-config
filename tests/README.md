@@ -9,6 +9,7 @@
 ```
 tests/
 ├── test_all.py          # 原有的基础功能测试
+├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
@@ -51,11 +52,17 @@ tests/
   - 离线模式用 temp 里缓存的压缩包、不调用下载器；没有缓存时报 `FetchError`
   - `clean` 删掉整个 temp
 
+#### 2b. test_dependency_layout.py - 依赖布局测试
+- **TestLoadLayout**: 全部经 `load_layout` 测
+  - `install_to` 和 `custom_install_rules` 必须且只能写一个；`exclude_files` 不能和规则一起写
+  - `managed_dir` 必须在 `portable_config/` 下并包含 `entry`；路径不能越出安装包
+  - `custom_config/base/` 和 `custom_config/<依赖名>/` 的文件装进 portable_config，同一路径出现两次就报错，依赖不能叫 `base`
+  - 仓库的 `package_cfg.json` 推导出的必需路径（含 `mpv.exe`）和托管目录
+
 #### 3. test_install_core.py - 安装管理器功能测试
-- **TestInstallManagerCore**: 安装管理器核心功能测试
-  - `test_default_installation`: 测试默认安装规则
-    - 测试插件安装到正确的目录结构
-    - 测试文件排除功能
+- **TestInstallManagerCore**: 安装管理器核心功能测试，规则都经 `load_layout` 和 `install_dependency` 走
+  - `test_install_to_copies_the_content_dir_with_excludes`: 按 `install_to` 安装并排除 `exclude_files`
+  - `test_install_to_dot_puts_the_content_at_the_archive_root`: `install_to: "."` 装到安装包根目录
     - 测试文件内容完整性
   - `test_custom_install_rule_basic`: 测试基本自定义安装规则
     - 测试 from/to 路径映射
@@ -66,16 +73,17 @@ tests/
     - 测试多种文件类型过滤
     - 测试子目录结构保持
 - **TestPackageTimestampCli**: `--package-timestamp` 参数的解析和校验
-- **TestRepositoryCustomConfig**: 用仓库里真实的 `custom_config` 测试
+- **TestRepositoryCustomConfig**: 用仓库里真实的 `package_cfg.json` 和 `custom_config` 测试
+  - 不装任何依赖时基础配置 `custom_config/base/` 也装进 `portable_config/`
   - `custom_config/uosc_danmaku/` 下的文件装进 `portable_config/`
   - `custom_config` 根目录下没有散文件
 
 #### 4. test_manifest.py - 归档清单测试
 - **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
-- **TestCheckArchive**: 经 `contract_test` 做的每项契约检查、清单资产与 zip 内清单的比对，以及 `check_archive.py` 的退出码和 `--manifest-asset`
+- **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset` 和 `--config`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 端到端，用本地假插件跑完整的 `run()`；返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 5. test_package_archive.py - 安装包构建测试
 - **TestKnownHashes**: 合并历史哈希文件与上一版清单，默认读仓库里的 `manifest-history.json`
@@ -180,8 +188,8 @@ OK
 - ✅ `DependencySource.clean()` - 删除临时目录
 
 ### 2. 安装管理器重构
-- ✅ `InstallManager.install_dependency()` - 默认安装逻辑（无自定义规则时）
-- ✅ `InstallManager._apply_custom_config_rule()` - 自定义规则应用
+- ✅ `InstallManager.install_dependency()` - 按依赖布局的 `install_to` 或自定义规则安装
+- ✅ `InstallManager.install_base_config()` - 基础配置
 - ✅ 移除硬编码的插件特定逻辑
 - ✅ 简化路径处理逻辑
 

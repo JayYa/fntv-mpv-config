@@ -17,6 +17,8 @@
             "version": "20261108",
             "filename_pattern": "mpv-x86_64-{version}",
             "format": "7z",
+            "install_to": ".",
+            "entry": "mpv.exe",
             "exclude_files": [
                 "doc/*"
             ]
@@ -28,10 +30,8 @@
             "version": "5.13.0",
             "filename_pattern": "uosc",
             "format": "zip",
-            "exclude_files": [
-                "*.md",
-                "LICENSE*"
-            ],
+            "entry": "portable_config/scripts/uosc/main.lua",
+            "managed_dir": "portable_config/scripts/uosc",
             "custom_install_rules": [
                 {
                     "from": "scripts",
@@ -52,6 +52,9 @@
             "version": "v2.1.0",
             "filename_pattern": "uosc_danmaku",
             "format": "zip",
+            "install_to": "portable_config/scripts/uosc_danmaku",
+            "entry": "portable_config/scripts/uosc_danmaku/main.lua",
+            "managed_dir": "portable_config/scripts/uosc_danmaku",
             "exclude_files": [
                 "*.md",
                 "LICENSE*"
@@ -61,13 +64,17 @@
             "name": "智能跳过片头片尾插件",
             "enabled": true,
             "local_path": "./local_packages/smart_skip",
-            "version": "local"
+            "version": "local",
+            "install_to": "portable_config/scripts/smart_skip",
+            "entry": "portable_config/scripts/smart_skip/main.lua",
+            "managed_dir": "portable_config/scripts/smart_skip"
         },
         "thumbfast": {
             "name": "thumbfast缩略图插件",
             "enabled": true,
             "local_path": "./local_packages/thumbfast",
             "version": "local",
+            "entry": "portable_config/scripts/thumbfast.lua",
             "custom_install_rules": [
                 {
                     "from": "",
