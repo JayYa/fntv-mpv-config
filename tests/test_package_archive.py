@@ -14,11 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                                  is_package_archive_name)
-from tests.test_manifest import VALID_PORTABLE_CONFIG, write_portable_config
-
-SHA256_ABC = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-SHA256_DEF = "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34"
-SHA256_GHI = "50ae61e841fac4e8f9e40baf2ad36ec868922ea48368c18f9535e47db56dd7fb"
+from tests.test_manifest import (SHA256_ABC, SHA256_DEF, SHA256_GHI, VALID_PORTABLE_CONFIG,
+                                 write_portable_config)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 

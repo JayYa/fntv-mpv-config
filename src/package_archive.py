@@ -1,7 +1,7 @@
 """
 安装包（package archive）的构建与契约测试
 
-调用方只需要这里的 interface；清单格式、归属规则和各项检查是 manifest.py 里的实现。
+调用方只需要这里的接口；清单格式、归属规则、已知哈希的合并和各项检查是 manifest.py 里的实现。
 """
 import re
 import zipfile
@@ -18,8 +18,10 @@ __all__ = [
     "contract_test", "is_package_archive_name", "validate_package_timestamp",
 ]
 
-PACKAGE_TIMESTAMP_PATTERN = re.compile(r"\d{8}_\d{6}")
-PACKAGE_ARCHIVE_NAME = re.compile(r"mpv-package-\d{8}_\d{6}\.zip")
+TIMESTAMP_REGEX = r"\d{8}_\d{6}"
+PACKAGE_TIMESTAMP_PATTERN = re.compile(TIMESTAMP_REGEX)
+PACKAGE_ARCHIVE_PREFIX = "mpv-package-"
+PACKAGE_ARCHIVE_NAME = re.compile(re.escape(PACKAGE_ARCHIVE_PREFIX) + TIMESTAMP_REGEX + r"\.zip")
 
 # 构建时间戳一律用北京时间。中国没有夏令时，固定 UTC+8 即可，不依赖 Windows 上缺失的时区库
 BEIJING = timezone(timedelta(hours=8), "Asia/Shanghai")
@@ -49,7 +51,7 @@ def validate_package_timestamp(timestamp: str) -> str:
         ValueError: 格式不符
     """
     if not PACKAGE_TIMESTAMP_PATTERN.fullmatch(timestamp):
-        raise ValueError(f"安装包时间戳格式应为 yyyyMMdd_HHmmss，实际为: {timestamp!r}")
+        raise ValueError(f"构建时间戳格式应为 yyyyMMdd_HHmmss，实际为: {timestamp!r}")
     return timestamp
 
 
@@ -85,7 +87,7 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
 
     manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, known)
     write_manifest(project_dir, manifest)
-    zip_path = project_dir.parent / f"mpv-package-{timestamp}.zip"
+    zip_path = project_dir.parent / f"{PACKAGE_ARCHIVE_PREFIX}{timestamp}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for file_path in sorted(project_dir.rglob("*")):
             if file_path.is_file():

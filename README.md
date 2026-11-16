@@ -51,7 +51,7 @@ fntv-mpv-config/
 │   ├── install_manager.py # 安装管理
 │   ├── log_manager.py     # 日志管理
 │   ├── package_archive.py # 安装包构建与契约测试的入口
-│   ├── manifest.py        # 清单格式、归属规则和各项契约检查（package_archive 的实现）
+│   ├── manifest.py        # 清单格式、归属规则、已知哈希和各项契约检查（package_archive 的实现）
 │   └── release.py         # 构建结果 JSON 和 Release 说明
 ├── custom_config/         # 自定义配置目录，按依赖项名分子目录
 │   ├── mpv/               # mpv.conf、input.conf、fntv/defaults.conf、shaders/
@@ -599,8 +599,8 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 3. **ExtractManager**: 支持多种压缩格式的解压
 4. **InstallManager**: 根据规则安装文件和配置
 5. **LogManager**: 统一的日志管理
-6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes` 读取并合并已知哈希
-7. **manifest.py**: 清单格式、归属规则和各项契约检查，只被 `package_archive.py` 使用
+6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes.load` 读取并合并已知哈希（类定义在 `manifest.py`，从这里导出）
+7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查，只被 `package_archive.py` 使用
 
 ### 扩展性
 
