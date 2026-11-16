@@ -7,6 +7,8 @@ from .manifest import DEFAULTS_CONF, PORTABLE_CONFIG
 
 BASE_REQUIRED_PATHS = (f"{PORTABLE_CONFIG}/mpv.conf", f"{PORTABLE_CONFIG}/{DEFAULTS_CONF}")
 
+LAYOUT_KEYS = frozenset({"install_to", "custom_install_rules", "exclude_files", "entry", "managed_dir"})
+
 
 class LayoutError(Exception):
     """package_cfg.json 里的依赖布局不合法"""
@@ -55,7 +57,7 @@ class DependencyLayout:
 
 def load_layout(dependencies: Mapping[str, Mapping[str, Any]], custom_config_dir: Path) -> DependencyLayout:
     """
-    从 package_cfg.json 的 dependencies 读出依赖布局；启用与否都算
+    从 package_cfg.json 的 dependencies 读出依赖布局；只看安装相关的字段，其它字段由打包配置校验
 
     custom_config_dir/base 下的文件是基础配置，custom_config_dir/<依赖名> 下的跟着该依赖装，
     都按相对路径装进 portable_config。

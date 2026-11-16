@@ -3,12 +3,13 @@
 负责从 GitHub Release 下载依赖的压缩包
 """
 import os
-import re
 import requests
-from typing import Optional, Dict, Any
+from typing import Dict
 from pathlib import Path
 import logging
 from tqdm import tqdm
+
+from .package_config import GithubRelease
 
 
 def github_api_headers() -> Dict[str, str]:
@@ -44,7 +45,7 @@ class DownloadManager:
         self.session = requests.Session()
         self.logger = logging.getLogger(__name__)
 
-    def download(self, name: str, config: Dict[str, Any], dest_dir: Path) -> Path:
+    def download(self, name: str, release: GithubRelease, dest_dir: Path) -> Path:
         """
         把依赖的压缩包下载到 dest_dir；同名且大小一致的文件已存在时不重复下载
 
@@ -56,11 +57,8 @@ class DownloadManager:
         """
         self.logger.info(f"开始下载 {name}")
         try:
-            download_url = self._get_download_url(config)
-            if not download_url:
-                raise DownloadError(f"无法获取 {name} 的下载链接")
-
-            file_path = Path(dest_dir) / self._get_filename(config, download_url)
+            download_url = self._get_github_release_url(release)
+            file_path = Path(dest_dir) / self._get_filename(release, download_url)
 
             if file_path.exists() and self._verify_file(file_path, download_url):
                 self.logger.info(f"{name} 文件已存在，跳过下载")
@@ -75,55 +73,12 @@ class DownloadManager:
         except Exception as e:
             raise DownloadError(f"下载 {name} 失败: {e}") from e
 
-    def _get_download_url(self, config: Dict[str, Any]) -> Optional[str]:
-        """
-        获取下载URL
+    def _get_github_release_url(self, release: GithubRelease) -> str:
+        filename = self._get_github_asset_filename(release.owner, release.repo, release.version,
+                                                   release.filename_pattern, release.format)
+        download_url = (f"https://github.com/{release.owner}/{release.repo}"
+                        f"/releases/download/{release.version}/{filename}")
 
-        Args:
-            config: 依赖项配置
-
-        Returns:
-            下载URL
-        """
-        base_url = config['url']
-        version = config['version']
-        filename_pattern = config['filename_pattern']
-        file_format = config['format']
-
-        if 'github.com' in base_url and '/releases' in base_url:
-            return self._get_github_release_url(base_url, version, filename_pattern, file_format)
-        else:
-            # 其他下载源的处理可以在这里扩展
-            raise DownloadError(f"不支持的下载源: {base_url}")
-
-    def _get_github_release_url(self, base_url: str, version: str, filename_pattern: str, file_format: str) -> Optional[str]:
-        """
-        获取GitHub Release的下载URL
-
-        Args:
-            base_url: GitHub仓库URL
-            version: 版本号
-            filename_pattern: 文件名模式
-            file_format: 文件格式
-
-        Returns:
-            下载URL
-        """
-        # 提取仓库信息
-        repo_match = re.search(r'github\.com/([^/]+)/([^/]+)', base_url)
-        if not repo_match:
-            self.logger.error(f"无法解析GitHub仓库URL: {base_url}")
-            return None
-
-        owner, repo = repo_match.groups()
-        self.logger.info(f"解析出仓库: {owner}/{repo}")
-
-        filename = self._get_github_asset_filename(owner, repo, version, filename_pattern, file_format)
-
-        # 构建直接下载链接
-        download_url = f"https://github.com/{owner}/{repo}/releases/download/{version}/{filename}"
-
-        # 如果启用代理，添加代理前缀
         if self.enable_proxy and self.proxy_url:
             download_url = f"{self.proxy_url}/{download_url}"
 
@@ -205,24 +160,10 @@ class DownloadManager:
                 base_name = filename_pattern
             return f"{base_name}.{file_format}"
 
-    def _get_filename(self, config: Dict[str, Any], download_url: str) -> str:
-        """
-        确定下载文件名
-
-        Args:
-            config: 依赖项配置
-            download_url: 下载URL
-
-        Returns:
-            文件名
-        """
-        # 从URL中提取文件名
+    def _get_filename(self, release: GithubRelease, download_url: str) -> str:
         filename = download_url.split('/')[-1]
-
-        # 如果文件名不包含格式，添加格式
-        if not filename.endswith(f".{config['format']}"):
-            filename = f"{config['filename_pattern']}.{config['format']}"
-
+        if not filename.endswith(f".{release.format}"):
+            filename = f"{release.filename_pattern}.{release.format}"
         return filename
 
     def _verify_file(self, file_path: Path, download_url: str) -> bool:
