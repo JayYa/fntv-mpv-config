@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# 上游 Anime4K shader，按原样保留
+custom_config/base/shaders/** -text

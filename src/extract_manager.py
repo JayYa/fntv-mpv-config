@@ -2,10 +2,8 @@
 解压管理模块
 负责处理不同格式的压缩文件解压
 """
-import os
 import zipfile
 import py7zr
-from typing import Union
 from pathlib import Path
 import logging
 
@@ -106,7 +104,7 @@ class ExtractManager:
         except Exception as e:
             error_msg = str(e)
             if "BCJ2 filter is not supported" in error_msg:
-                self.logger.warning(f"py7zr 不支持该压缩格式，尝试使用 7-Zip 命令行工具")
+                self.logger.warning("py7zr 不支持该压缩格式，尝试使用 7-Zip 命令行工具")
                 self._extract_with_7zip_cli(archive_path, extract_to)
             else:
                 raise ExtractError(f"解压失败: {e}")
@@ -135,7 +133,7 @@ class ExtractManager:
         try:
             # 执行解压命令
             cmd = [seven_zip_exe, "x", str(archive_path), f"-o{extract_to}", "-y"]
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
             self.logger.info(f"使用 7-Zip 成功解压到: {extract_to}")
         except subprocess.CalledProcessError as e:
             raise ExtractError(f"7-Zip 解压失败: {e.stderr}")

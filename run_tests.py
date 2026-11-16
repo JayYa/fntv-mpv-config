@@ -5,7 +5,6 @@
 """
 import sys
 import unittest
-import os
 from pathlib import Path
 
 def discover_and_run_tests():
