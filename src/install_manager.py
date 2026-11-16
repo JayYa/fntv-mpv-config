@@ -2,9 +2,7 @@
 安装管理模块
 负责将解压的文件按照规则安装到目标位置
 """
-import re
 import shutil
-from datetime import datetime, timedelta, timezone
 import fnmatch
 from typing import Dict, Any, List, Optional
 from pathlib import Path
@@ -14,29 +12,6 @@ import logging
 class InstallError(Exception):
     """安装错误异常"""
     pass
-
-
-PACKAGE_TIMESTAMP_PATTERN = re.compile(r"\d{8}_\d{6}")
-
-# 构建时间戳一律用北京时间。中国没有夏令时，固定 UTC+8 即可，不依赖 Windows 上缺失的时区库
-BEIJING = timezone(timedelta(hours=8), "Asia/Shanghai")
-
-
-def current_package_timestamp() -> str:
-    """当前北京时间的安装包时间戳（yyyyMMdd_HHmmss）"""
-    return datetime.now(BEIJING).strftime("%Y%m%d_%H%M%S")
-
-
-def validate_package_timestamp(timestamp: str) -> str:
-    """
-    校验安装包时间戳格式（yyyyMMdd_HHmmss，与 Release tag 的时间部分相同）
-
-    Raises:
-        InstallError: 格式不符
-    """
-    if not PACKAGE_TIMESTAMP_PATTERN.fullmatch(timestamp):
-        raise InstallError(f"安装包时间戳格式应为 yyyyMMdd_HHmmss，实际为: {timestamp!r}")
-    return timestamp
 
 
 class InstallManager:
@@ -343,43 +318,6 @@ class InstallManager:
                 self.logger.error(f"安装 {name} 自定义配置失败: {e}")
                 raise
 
-    def create_package(self, timestamp: Optional[str] = None) -> Path:
-        """
-        创建最终的安装包
-
-        Args:
-            timestamp: 资产名里的时间戳（yyyyMMdd_HHmmss），与归档版本同源；
-                       None 时使用当前北京时间
-
-        Returns:
-            安装包路径
-        """
-        self.logger.info("创建安装包")
-
-        if timestamp is None:
-            timestamp = current_package_timestamp()
-        else:
-            validate_package_timestamp(timestamp)
-        package_name = f"mpv-package-{timestamp}"
-        # 打包文件放在根输出目录，而不是项目子目录
-        package_path = self.base_output_dir / f"{package_name}.zip"
-        
-        try:
-            import zipfile
-            
-            with zipfile.ZipFile(package_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                # 添加所有文件到压缩包
-                for file_path in self.output_dir.rglob('*'):
-                    if file_path.is_file():
-                        arcname = file_path.relative_to(self.output_dir)
-                        zipf.write(file_path, arcname)
-            
-            self.logger.info(f"安装包创建完成: {package_path}")
-            return package_path
-            
-        except Exception as e:
-            raise InstallError(f"创建安装包失败: {e}")
-    
     def cleanup_output(self):
         """清理输出目录"""
         try:

@@ -11,12 +11,11 @@ from typing import List, Optional
 from .config_manager import ConfigManager, ConfigError
 from .download_manager import DownloadManager, DownloadError
 from .extract_manager import ExtractManager, ExtractError
-from .install_manager import (InstallManager, InstallError, current_package_timestamp,
-                              validate_package_timestamp)
+from .install_manager import InstallManager
 from .log_manager import LogManager
-from .manifest import archive_version_for, build_manifest, write_manifest
-from .package_archive import KnownHashes, contract_test
-from .release import BuildResult, Dependency, PackageArchive, write_build_result
+from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
+                              is_package_archive_name, validate_package_timestamp)
+from .release import BuildResult, Dependency, write_build_result
 
 
 class MPVConfigManager:
@@ -137,43 +136,20 @@ class MPVConfigManager:
                 ),
             )
 
-            # 生成清单、创建安装包，然后对安装包跑契约测试
             if create_package and not skip_install and self.install_manager:
-                if package_timestamp is None:
-                    package_timestamp = current_package_timestamp()
-                archive_version = archive_version_for(package_timestamp)
                 known = KnownHashes.load(history_path, previous_manifest_path)
                 if previous_manifest_path:
                     self.logger.info(f"并入上一版清单: {previous_manifest_path}")
-                manifest = build_manifest(
-                    self.install_manager.portable_config_dir,
-                    archive_version,
-                    self._get_components(),
-                    known=known,
-                )
-                write_manifest(self.install_manager.output_dir, manifest)
-                self.logger.info(f"清单已生成: {archive_version}，{len(manifest['files'])} 个文件")
-
-                package_path = self.install_manager.create_package(package_timestamp)
-                self.logger.info(f"安装包已创建: {package_path}")
-
-                manifest_asset_path = write_manifest(package_path.parent, manifest)
-                self.logger.info(f"清单资产已写入: {manifest_asset_path}")
-
-                errors = contract_test(package_path, known, archive_version=archive_version,
-                                       manifest_asset=manifest_asset_path)
-                if errors:
-                    for error in errors:
+                try:
+                    package = build_package_archive(self.install_manager.output_dir,
+                                                    self._get_components(), known,
+                                                    timestamp=package_timestamp)
+                except ContractTestFailed as e:
+                    for error in e.errors:
                         self.logger.error(f"契约测试失败: {error}")
                     return None
-                self.logger.info("契约测试通过")
-
-                result = replace(result, package=PackageArchive(
-                    path=package_path.resolve(),
-                    manifest_asset_path=manifest_asset_path.resolve(),
-                    archive_version=archive_version,
-                    timestamp=package_timestamp,
-                ))
+                self.logger.info(f"安装包已创建并通过契约测试: {package.path}（{package.archive_version}）")
+                result = replace(result, package=package)
 
             # 清理临时文件
             if cleanup:
@@ -417,13 +393,14 @@ class MPVConfigManager:
             return False
         
         filename = file_path.name
-        
+        if is_package_archive_name(filename):
+            return True
+
         # 动态获取项目名称
         project_name = self.config_manager.get_project_name()
-        
+
         # 构建生成的压缩包文件名模式
         build_patterns = [
-            'mpv-package-',                    # InstallManager.create_package() 生成的文件
             f'{project_name}-',                # 项目相关的压缩包
             f'{project_name}-config-',         # 配置包
         ]
@@ -457,7 +434,7 @@ def _package_timestamp_arg(value: str) -> str:
     """argparse 类型函数：启动时就拒绝格式错误的时间戳，避免构建完才失败"""
     try:
         return validate_package_timestamp(value)
-    except InstallError as e:
+    except ValueError as e:
         raise argparse.ArgumentTypeError(str(e))
 
 

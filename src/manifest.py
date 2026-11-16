@@ -68,11 +68,6 @@ class ManifestError(Exception):
     """清单生成错误"""
 
 
-def archive_version_for(timestamp: str) -> str:
-    """安装包时间戳对应的 Release tag，也是清单的 archiveVersion"""
-    return f"fntv-mpv-v{timestamp}"
-
-
 def write_manifest(archive_root: Path, manifest: dict) -> Path:
     """把清单写到归档根目录（与 mpv.exe、portable_config 同级）"""
     path = Path(archive_root) / MANIFEST_NAME
