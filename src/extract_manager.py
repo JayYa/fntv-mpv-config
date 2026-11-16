@@ -99,7 +99,8 @@ class ExtractManager:
     def _extract_7z(self, archive_path: Path, extract_to: Path):
         """解压7Z文件"""
         try:
-            # 自己打开文件：py7zr 在构造时报错（如 BCJ2）会泄漏句柄，Windows 上之后删不掉 temp
+            # 传文件对象而不是路径：传路径时 py7zr 并行解压，会按文件名另开一个不关闭的句柄，
+            # 解压报错（如 BCJ2）后它要等 GC 才释放，Windows 上 temp 就删不掉
             with open(archive_path, 'rb') as f, py7zr.SevenZipFile(f, mode='r') as z:
                 z.extractall(extract_to)
         except Exception as e:

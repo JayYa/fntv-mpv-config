@@ -1,4 +1,3 @@
-"""依赖来源：把一个依赖变成内容目录（content dir），交给安装步骤"""
 import logging
 import shutil
 from pathlib import Path
@@ -74,7 +73,6 @@ class DependencySource:
             self.logger.info(f"已删除临时目录: {self.temp_dir}")
 
     def _local_path(self, config: Dict[str, Any]) -> Optional[Path]:
-        """local_path 或非 http(s) 的 url 指向本地，否则是网络依赖；相对路径以 base_dir 为基准"""
         url = config.get('url', '')
         value = config.get('local_path') or (url if not url.startswith(('http://', 'https://')) else '')
         if not value:

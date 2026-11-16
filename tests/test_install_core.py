@@ -49,7 +49,6 @@ class TestInstallManagerCore(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
     def test_project_name_must_be_one_directory_level(self):
-        """名字是空、"."、".." 或带分隔符时，清空 project 目录会删到输出目录或它的上级"""
         for bad in ["", ".", "..", "a/b", "../x"]:
             with self.subTest(name=bad):
                 with self.assertRaises(ValueError):

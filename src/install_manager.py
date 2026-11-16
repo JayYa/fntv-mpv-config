@@ -22,8 +22,7 @@ class InstallManager:
             project_name: 项目名称，即 project 目录在输出目录下的名字
 
         Raises:
-            ValueError: project_name 不是单独一级目录名（空、"."、".." 或含路径分隔符），
-                        否则清空 project 目录会删到输出目录本身或它的上级
+            ValueError: project_name 不是单独一级目录名（空、"."、".." 或含路径分隔符）
         """
         if project_name in ("", ".", "..") or Path(project_name).name != project_name:
             raise ValueError(f"项目名称必须是单独一级目录名: {project_name!r}")
@@ -68,14 +67,6 @@ class InstallManager:
         self.logger.info(f"{name} 安装完成")
     
     def _install_content_default(self, name: str, content_dir: Path, excludes: List[str]):
-        """
-        没有自定义安装规则时，按默认位置安装内容目录
-
-        Args:
-            name: 依赖项名称
-            content_dir: 依赖的内容目录
-            excludes: 排除的文件模式
-        """
         # 根据依赖项类型决定默认安装位置
         if name == 'mpv':
             # MPV主程序安装到根目录

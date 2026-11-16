@@ -125,11 +125,10 @@ class MPVConfigManager:
             return None
 
     def _dependency_source(self, offline: bool = False) -> DependencySource:
-        """本地相对路径以 package_cfg.json 所在目录为基准"""
         return DependencySource(self.config_manager.get_temp_dir(),
-                                self.config_manager.config_path.resolve().parent,
-                                self.config_manager.get_github_proxy(),
-                                self.config_manager.is_proxy_enabled(),
+                                base_dir=self.config_manager.config_path.resolve().parent,
+                                proxy_url=self.config_manager.get_github_proxy(),
+                                enable_proxy=self.config_manager.is_proxy_enabled(),
                                 offline=offline)
 
     def _installer(self) -> InstallManager:

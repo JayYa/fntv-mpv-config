@@ -1,4 +1,3 @@
-"""依赖来源：每种依赖都经 fetch 变成内容目录"""
 import shutil
 import tempfile
 import unittest
