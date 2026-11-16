@@ -37,6 +37,32 @@ class TestLoadLayout(unittest.TestCase):
         with self.assertRaisesRegex(LayoutError, "exclude_files"):
             self.load({"plugin": {"custom_install_rules": rules, "exclude_files": ["*.md"]}})
 
+    def test_install_rules_that_would_silently_misbehave_are_rejected(self):
+        good = {"from": "", "to": "portable_config/scripts", "filter": ["x.lua"]}
+        bad = [
+            {**good, "excludes": ["*.md"]},
+            {**good, "from": "../outside"},
+            {**good, "from": "/abs"},
+            {**good, "filter": []},
+            {**good, "filter": "x.lua"},
+            {**good, "filter": ["!x.lua"]},
+            {**good, "filter": ["scripts/"]},
+            {**good, "exclude": ["!keep.md"]},
+            {**good, "filter": ["[z-a].lua"]},
+        ]
+        for rule in bad:
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(LayoutError, "plugin"):
+                    self.load({"plugin": {"custom_install_rules": [rule]}})
+        for rules in ([], {}, ["scripts"]):
+            with self.subTest(rules=rules):
+                with self.assertRaisesRegex(LayoutError, "plugin"):
+                    self.load({"plugin": {"custom_install_rules": rules}})
+
+    def test_install_to_exclude_files_are_checked_like_rule_excludes(self):
+        with self.assertRaisesRegex(LayoutError, "plugin"):
+            self.load({"plugin": {"install_to": ".", "exclude_files": ["doc/"]}})
+
     def test_managed_dir_must_be_in_portable_config_and_hold_the_entry(self):
         bad = [
             {"entry": "portable_config/scripts/a/main.lua", "managed_dir": "portable_config/scripts/b"},

@@ -36,7 +36,6 @@
 构建工具本身也有平台差异。CI 在 Windows 上构建。在 macOS 或 Linux 上本地运行 `run.py` 时：
 
 - py7zr 解不开 mpv 的 7z 包时，程序回退到 7-Zip 命令行，但只查找 `7z.exe`，所以这一步在 macOS 和 Linux 上会失败。
-- 文件排除模式用 Python 的 `fnmatch.fnmatch` 匹配，在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
 
 ## 项目结构
 
@@ -283,7 +282,7 @@ python run.py --clean all       # 两者都删
       "install_to": ".",                // 内容目录整个装到安装包根目录
       "entry": "mpv.exe",               // 安装包里必须有的入口文件
       "exclude_files": [                // 排除不需要的文件，只能和 install_to 一起用
-        "doc/*"
+        "doc/**"
       ]
     },
     "uosc": {
@@ -297,12 +296,12 @@ python run.py --clean all       # 两者都删
       "managed_dir": "portable_config/scripts/uosc",  // 客户端整体替换的目录
       "custom_install_rules": [          // 自定义安装规则，和 install_to 二选一
         {
-          "from": "scripts",            // 从解压包的scripts目录
+          "from": "scripts",            // 从内容目录的scripts目录
           "to": "portable_config/scripts", // 安装到portable_config/scripts
           "filter": ["**/*"]            // 包含所有文件
         },
         {
-          "from": "fonts",              // 从解压包的fonts目录
+          "from": "fonts",              // 从内容目录的fonts目录
           "to": "portable_config/fonts", // 安装到portable_config/fonts
           "filter": ["**/*"]
         }
@@ -343,50 +342,40 @@ python run.py --clean all       # 两者都删
 ```json
 {
   "exclude_files": [
-    "*.md",              // 排除任意深度的markdown文档（* 也匹配 /）
-    "LICENSE*",          // 排除许可证文件
-    "doc/*",            // 排除doc目录下的所有文件
-    "installer/*",      // 排除installer目录
-    "*.bat",            // 排除批处理文件
-    ".github/**",       // 排除任意一级名为.github的目录
-    "test/**",          // 排除任意一级名为test的目录
-    "docs/**"           // 排除任意一级名为docs的目录
+    "*.md",              // 任意深度的 markdown 文档
+    "LICENSE*",          // 任意深度的许可证文件
+    "doc/**",            // 内容根下 doc 目录里的全部文件
+    "installer/*",       // 内容根下 installer 目录的直接子文件
+    "**/.github/**",     // 任意一级名为 .github 的目录
+    "**/test/**"         // 任意一级名为 test 的目录
   ]
 }
 ```
 
-模式不是完整的 glob，`exclude_files`、`filter`、`exclude` 都按下表匹配（`InstallManager._matches_pattern`）：
+`exclude_files`、`filter`、`exclude` 都是 gitignore 式模式，区分大小写：
 
 | 模式 | 匹配 |
 | --- | --- |
-| `**/*` | 所有文件 |
-| `**/<文件名模式>` | 任意深度下文件名匹配的文件，如 `**/*.lua`。`**/test/**` 这种只比较文件名，匹配不到任何文件 |
-| `<目录>/**` | 路径中任意一级目录名等于 `<目录>` 的文件 |
-| `<前缀>/**/<后缀>` | 路径同时含 `<前缀>` 和 `<后缀>` 两个子串的文件 |
-| 其他 | `fnmatch.fnmatch` 匹配整个相对路径，`*` 也匹配 `/` |
+| 不含 `/`，如 `*.md`、`thumbfast.lua` | 任意深度下文件名匹配的文件 |
+| 含 `/`，如 `doc/*`、`scripts/**/*.lua` | 从内容根（规则里是 `from`）起的整条相对路径；`*`、`?`、`[...]` 不跨 `/`，`**` 匹配任意层目录（含零层） |
 
-`fnmatch.fnmatch` 在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
+不支持以 `!` 或 `/` 开头、以 `/` 结尾的模式，写了在加载配置时报错。
 
 #### custom_install_rules 自定义安装规则
 
 `custom_install_rules` 用于定义特殊的文件安装规则，参考 Node.js extraFiles 功能设计：
 
-- `from`: 源目录路径（相对于解压后的根目录，可以为空）
+- `from`: 源目录或文件（相对于内容目录，可以为空，表示内容目录本身）
 - `to`: 目标目录路径（相对于输出子目录 `<输出目录>/<name>/`，不是相对于 `portable_config/`）
-- `filter`: 文件过滤器数组，支持glob模式（可选，默认为 `["**/*"]`）
-- `exclude`: 排除模式数组，支持glob模式（可选）
+- `filter`: 文件过滤器数组（可选，默认为 `["**/*"]`）
+- `exclude`: 排除模式数组（可选）
 
-**设计理念**：
-- 简洁的 `from` -> `to` 映射关系
-- 统一的路径处理逻辑，避免复杂的特殊情况判断
-- 灵活的过滤器和排除规则支持
+规则只能写这四个字段，写了别的（比如把 `exclude` 拼成 `excludes`）加载配置时报错。模式见上面的模式表。
 
-**支持的文件模式**：
-  - `**/*`: 所有文件
-  - `*.lua`: 所有Lua文件
-  - `script-opts/**`: script-opts目录下的所有文件
-  - `*.md`: 排除所有Markdown文件
-  - 完整规则见上面的模式表
+以下情况构建直接失败，报错写明依赖名和规则：
+- `from` 在内容目录里不存在
+- 某个 `filter` 在排除之后一个文件都没装进去（`install_to` 相当于一条 `filter: ["**/*"]` 的规则，所以内容目录全被排除掉也会失败）
+- 两个依赖（或依赖与 `custom_config/base/`）要装同一个文件；`custom_config/<依赖项名>/` 替换依赖自带的文件是允许的
 
 ### 配置工作原理
 
@@ -399,12 +388,12 @@ python run.py --clean all       # 两者都删
 - 目标路径统一相对于输出子目录 `<输出目录>/<name>/` 处理
 - 支持 `portable_config/` 前缀的完整路径
 - 空目标路径安装到输出子目录根，与 `portable_config/` 同级
-- `from` 不存在时记一条警告并跳过该规则
+- `from` 不存在时构建失败
 
 **配置规则示例**：
 ```json
 {
-  "from": "scripts",                    // 从解压包的scripts目录
+  "from": "scripts",                    // 从内容目录的scripts目录
   "to": "portable_config/scripts",      // 安装到输出目录的portable_config/scripts
   "filter": ["**/*.lua"],               // 只包含lua文件
   "exclude": ["test/**"]                // 排除测试目录
@@ -437,18 +426,14 @@ python run.py --clean all       # 两者都删
     "name": "uosc插件", 
     "url": "https://github.com/tomasklaen/uosc/releases",
     "version": "5.13.0",
-    "exclude_files": [
-      "*.md",
-      "LICENSE*"
-    ],
     "custom_install_rules": [
       {
-        "from": "scripts",                    // 从解压包的scripts目录
+        "from": "scripts",                    // 从内容目录的scripts目录
         "to": "portable_config/scripts",      // 安装到portable_config/scripts
         "filter": ["**/*"]                    // 包含所有文件
       },
       {
-        "from": "fonts",                      // 从解压包的fonts目录
+        "from": "fonts",                      // 从内容目录的fonts目录
         "to": "portable_config/fonts",       // 安装到portable_config/fonts
         "filter": ["**/*"]
       }
@@ -468,7 +453,7 @@ python run.py --clean all       # 两者都删
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
     "version": "20261108",
     "exclude_files": [
-      "doc/*"              // 排除文档目录
+      "doc/**"              // 排除文档目录
     ]
   }
 }
@@ -609,7 +594,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 - **添加新的下载源**: 在DownloadManager中扩展
 - **支持新的压缩格式**: 在ExtractManager中添加处理器
-- **自定义安装规则**: 修改InstallManager的规则处理逻辑
+- **自定义安装规则**: 规则的解析和校验在 `dependency_layout.py`，按规则选文件、复制在 `install_manager.py`
 
 ### 调试技巧
 
@@ -632,11 +617,9 @@ python validate_config.py
 
 #### 文件排除调试
 
-当使用`--log-level DEBUG`时，可以看到每条规则的源和目标路径，以及每个复制的文件：
+当使用`--log-level DEBUG`时，可以看到每个复制的文件：
 
 ```
-DEBUG - 排除文件: ['doc/*']
-DEBUG - 应用自定义配置规则 [uosc]: temp\uosc\content\scripts -> output\fntv-mpv\portable_config\scripts
 DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 ```
 
@@ -650,7 +633,7 @@ DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 
 ```json
 {
-  "from": "source_path",    // 源路径（相对于解压目录）
+  "from": "source_path",    // 源路径（相对于内容目录）
   "to": "target_path",      // 目标路径（相对于输出子目录）
   "filter": ["**/*"],       // 可选：包含过滤器
   "exclude": []             // 可选：排除过滤器
@@ -660,8 +643,8 @@ DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 ### 路径处理规则
 
 1. **源路径 (`from`)**：
-   - 相对于解压后的根目录
-   - 可以为空字符串（表示整个解压目录）
+   - 相对于内容目录
+   - 可以为空字符串（表示整个内容目录）
    - 示例：`"scripts"`、`"fonts"`、`""`
 
 2. **目标路径 (`to`)**：
@@ -693,7 +676,7 @@ DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 #### 示例3：整个目录重新映射
 ```json
 {
-  "from": "",  // 整个解压目录
+  "from": "",  // 整个内容目录
   "to": "portable_config",
   "filter": ["**/*.lua"],
   "exclude": ["docs/**", "examples/**"]
@@ -732,7 +715,7 @@ python tests/test_all.py
 - ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
 - ✅ **DownloadManager**: `GITHUB_TOKEN` 认证
 - ✅ **ExtractManager**: 格式识别
-- ✅ **InstallManager**: 模式匹配、排除功能、默认安装和自定义规则、安装包命名
+- ✅ **InstallManager**: install_to 和自定义规则、模式匹配语义、规则对不上内容目录或两个依赖装同一文件时报错
 - ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程（含上次构建的残留不进安装包）
 - ✅ **package_cfg.json**: 固定的依赖版本和下载地址
 
@@ -790,7 +773,7 @@ A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正�
 A: 
 1. 使用`--log-level DEBUG`查看排除过程详细信息
 2. 确认排除模式语法正确，对照[模式表](#exclude_files-排除模式)，使用正斜杠`/`作为路径分隔符
-3. 注意大小写：Windows 上不区分，macOS 和 Linux 上区分
+3. 注意大小写：模式在所有平台上都区分大小写
 4. 确认排除的是相对于`from`目录的相对路径
 5. 检查是否同时被`filter`包含和`exclude`排除（exclude优先）
 6. 依赖项有`custom_install_rules`时不能写`exclude_files`（加载会报错），排除要写进规则的`exclude`
@@ -798,13 +781,14 @@ A:
 #### 排除模式语法示例：
 ```json
 "exclude": [
-  "*.md",           // ✅ 正确：排除所有.md文件
-  "*.MD",           // ⚠️  注意：Windows 上同 *.md；macOS 和 Linux 上只排除.MD文件
-  "LICENSE*",       // ✅ 正确：排除以LICENSE开头的文件
-  "**/.git*",       // ✅ 正确：排除任意深度下文件名以.git开头的文件，如.gitignore
-  "test/**",        // ✅ 正确：排除任意一级名为test的目录
-  "**/test/**",     // ❌ 错误：只比较文件名，匹配不到任何文件，应写 "test/**"
-  "docs/**/*.md"    // ❌ 错误：按子串比较 "docs" 和 "*.md"，匹配不到；可用 "*.md" 加规则的 from 限定目录
+  "*.md",           // ✅ 任意深度的 .md 文件
+  "*.MD",           // ⚠️  区分大小写：只排除 .MD 文件
+  "LICENSE*",       // ✅ 任意深度、文件名以 LICENSE 开头的文件
+  ".git*",          // ✅ 任意深度、文件名以 .git 开头的文件，如 .gitignore
+  "test/**",        // ✅ 内容根下 test 目录里的全部文件
+  "**/test/**",     // ✅ 任意一级名为 test 的目录
+  "docs/**/*.md",   // ✅ 内容根下 docs 目录里任意深度的 .md 文件
+  "test/"           // ❌ 不支持以 / 结尾，加载配置时报错，应写 "test/**"
 ]
 ```
 
