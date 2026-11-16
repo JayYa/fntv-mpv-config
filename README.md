@@ -146,9 +146,10 @@ python run.py --enable uosc_danmaku
 python run.py --disable uosc_danmaku
 
 # 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败。
-# 默认运行结束会删掉 temp，所以先带 --skip-cleanup 联网构建一次
+# 默认运行结束会删掉 temp（离线构建也一样），所以先带 --skip-cleanup 联网构建一次；
+# 要连续离线构建，每次都带 --skip-cleanup
 python run.py --skip-cleanup
-python run.py --skip-download
+python run.py --skip-download --skip-cleanup
 
 # 只下载，不安装，也不打包
 python run.py --skip-install

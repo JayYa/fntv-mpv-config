@@ -3,7 +3,6 @@
 协调各个模块的工作，提供命令行界面
 """
 import argparse
-import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +10,6 @@ from typing import List, Optional
 
 from .config_manager import ConfigManager
 from .dependency_source import DependencySource
-from .download_manager import DownloadManager
 from .install_manager import InstallManager
 from .log_manager import LogManager
 from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
@@ -128,11 +126,11 @@ class MPVConfigManager:
 
     def _dependency_source(self, offline: bool = False) -> DependencySource:
         """本地相对路径以 package_cfg.json 所在目录为基准"""
-        downloader = DownloadManager(self.config_manager.get_github_proxy(),
-                                     self.config_manager.is_proxy_enabled())
         return DependencySource(self.config_manager.get_temp_dir(),
                                 self.config_manager.config_path.resolve().parent,
-                                downloader, offline=offline)
+                                self.config_manager.get_github_proxy(),
+                                self.config_manager.is_proxy_enabled(),
+                                offline=offline)
 
     def _installer(self) -> InstallManager:
         return InstallManager(self.config_manager.get_output_dir(),
@@ -226,10 +224,7 @@ class MPVConfigManager:
                 if not output_dir.exists():
                     self.logger.info(f"输出目录不存在: {output_dir}")
                     return
-                project_dir = self._installer().output_dir
-                if project_dir.exists():
-                    shutil.rmtree(project_dir)
-                    self.logger.info(f"已删除目录: {project_dir}")
+                self._installer().remove_project_dir()
                 for path in remove_package_archives(output_dir):
                     self.logger.info(f"已删除文件: {path.name}")
 
@@ -289,7 +284,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
         '--skip-download',
         action='store_true',
         help='离线模式：不访问网络，网络依赖只用临时目录里上次下载的压缩包'
-             '（上次构建需带 --skip-cleanup），没有就失败'
+             '（上次构建需带 --skip-cleanup），没有就失败；离线构建结束时同样会删掉临时目录，'
+             '要连续离线构建就每次都带 --skip-cleanup'
     )
 
     parser.add_argument(

@@ -165,7 +165,7 @@ class ExtractManager:
         with tarfile.open(archive_path, mode) as tar:
             tar.extractall(extract_to)
     
-    def find_extracted_content(self, extract_path: Path) -> Path:
+    def find_content_dir(self, extract_path: Path) -> Path:
         """
         查找解压后的实际内容目录
         

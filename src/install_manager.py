@@ -19,20 +19,30 @@ class InstallManager:
         Args:
             output_dir: 输出目录
             custom_config_dir: 自定义配置目录
-            project_name: 项目名称，用于创建子目录
+            project_name: 项目名称，即 project 目录在输出目录下的名字
+
+        Raises:
+            ValueError: project_name 不是单独一级目录名（空、"."、".." 或含路径分隔符），
+                        否则清空 project 目录会删到输出目录本身或它的上级
         """
+        if project_name in ("", ".", "..") or Path(project_name).name != project_name:
+            raise ValueError(f"项目名称必须是单独一级目录名: {project_name!r}")
         self.base_output_dir = Path(output_dir)
-        self.output_dir = self.base_output_dir / project_name  # 在输出目录下创建项目子目录
+        self.output_dir = self.base_output_dir / project_name
         self.custom_config_dir = Path(custom_config_dir)
         self.project_name = project_name
         self.logger = logging.getLogger(__name__)
         self.portable_config_dir = self.output_dir / "portable_config"
 
-    def reset_project_dir(self):
-        """清空 project 目录，让这次构建只含本次安装的文件；输出目录里的其它东西不动"""
+    def remove_project_dir(self):
+        """删掉 project 目录；输出目录里的其它东西不动"""
         if self.output_dir.exists():
             shutil.rmtree(self.output_dir)
-            self.logger.info(f"已清空 project 目录: {self.output_dir}")
+            self.logger.info(f"已删除 project 目录: {self.output_dir}")
+
+    def reset_project_dir(self):
+        """清空 project 目录，让这次构建只含本次安装的文件"""
+        self.remove_project_dir()
         self.portable_config_dir.mkdir(parents=True)
 
     def install_dependency(self, name: str, config: Dict[str, Any], content_dir: Path):
@@ -52,18 +62,18 @@ class InstallManager:
             for rule in custom_install_rules:
                 self._apply_custom_config_rule(name, rule, content_dir)
         else:
-            self._install_extracted_files_default(name, content_dir, config.get('exclude_files', []))
+            self._install_content_default(name, content_dir, config.get('exclude_files', []))
 
         self._install_custom_config(name)
         self.logger.info(f"{name} 安装完成")
     
-    def _install_extracted_files_default(self, name: str, extracted_path: Path, excludes: List[str]):
+    def _install_content_default(self, name: str, content_dir: Path, excludes: List[str]):
         """
-        使用默认规则安装解压的文件，移除硬编码逻辑
-        
+        没有自定义安装规则时，按默认位置安装内容目录
+
         Args:
             name: 依赖项名称
-            extracted_path: 解压路径
+            content_dir: 依赖的内容目录
             excludes: 排除的文件模式
         """
         # 根据依赖项类型决定默认安装位置
@@ -74,7 +84,7 @@ class InstallManager:
             # 其他插件默认安装到scripts目录下的子目录
             target_path = self.portable_config_dir / "scripts" / name
         
-        self.logger.info(f"默认安装 {name}: {extracted_path} -> {target_path}")
+        self.logger.info(f"默认安装 {name}: {content_dir} -> {target_path}")
         if excludes:
             self.logger.debug(f"排除文件: {excludes}")
         
@@ -82,7 +92,7 @@ class InstallManager:
         target_path.mkdir(parents=True, exist_ok=True)
         
         # 复制所有文件，但排除指定模式
-        self._copy_filtered_files(extracted_path, target_path, "**/*", excludes)
+        self._copy_filtered_files(content_dir, target_path, "**/*", excludes)
     
     def _apply_custom_config_rule(self, name: str, rule: Dict[str, Any], source_base: Path):
         """

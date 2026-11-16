@@ -180,7 +180,7 @@ OK
 - ✅ `DependencySource.clean()` - 删除临时目录
 
 ### 2. 安装管理器重构
-- ✅ `InstallManager._install_extracted_files_default()` - 默认安装逻辑
+- ✅ `InstallManager.install_dependency()` - 默认安装逻辑（无自定义规则时）
 - ✅ `InstallManager._apply_custom_config_rule()` - 自定义规则应用
 - ✅ 移除硬编码的插件特定逻辑
 - ✅ 简化路径处理逻辑

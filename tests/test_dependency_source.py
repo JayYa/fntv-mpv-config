@@ -24,7 +24,7 @@ class TestDependencySource(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.temp_dir = self.tmp / "temp"
         self.downloader = mock.Mock()
-        self.source = DependencySource(self.temp_dir, self.tmp, self.downloader)
+        self.source = DependencySource(self.temp_dir, self.tmp, downloader=self.downloader)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -69,7 +69,7 @@ class TestDependencySource(unittest.TestCase):
     def test_offline_uses_the_cached_download(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip",
                   {"scripts/uosc/main.lua": "-- cached", "fonts/a.otf": ""})
-        offline = DependencySource(self.temp_dir, self.tmp, self.downloader, offline=True)
+        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
 
         content = offline.fetch("uosc", NETWORK_DEP)
 
@@ -77,11 +77,17 @@ class TestDependencySource(unittest.TestCase):
         self.downloader.download.assert_not_called()
 
     def test_offline_without_cache_fails(self):
-        offline = DependencySource(self.temp_dir, self.tmp, self.downloader, offline=True)
+        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
 
         with self.assertRaises(FetchError):
             offline.fetch("uosc", NETWORK_DEP)
         self.downloader.download.assert_not_called()
+
+    def test_offline_needs_a_format_to_find_the_cache(self):
+        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
+
+        with self.assertRaisesRegex(FetchError, "format"):
+            offline.fetch("uosc", {**NETWORK_DEP, "format": ""})
 
     def test_clean_removes_the_temp_dir(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip", {"a": ""})

@@ -22,19 +22,24 @@ class DependencySource:
     temp/<依赖名>/content/ 放解压结果。本地文件夹直接当内容目录，不复制。
     """
 
-    def __init__(self, temp_dir: Path, base_dir: Path,
-                 downloader: Optional[DownloadManager] = None, offline: bool = False):
+    def __init__(self, temp_dir: Path, base_dir: Path, proxy_url: str = "",
+                 enable_proxy: bool = False, offline: bool = False,
+                 downloader: Optional[DownloadManager] = None):
         """
         Args:
             temp_dir: 暂存目录，整个归这个 module 管
             base_dir: 本地相对路径的基准，即 package_cfg.json 所在目录
-            downloader: 网络依赖的下载器，None 时用不带代理的默认下载器
+            proxy_url: GitHub 代理地址
+            enable_proxy: 是否启用代理
             offline: 离线模式，不访问网络，网络依赖只用 temp 里上次下载的压缩包
+            downloader: 替换网络下载器（测试用）；None 时第一次下载才按代理设置创建
         """
         self.temp_dir = Path(temp_dir)
         self.base_dir = Path(base_dir)
-        self.downloader = downloader or DownloadManager()
+        self.proxy_url = proxy_url
+        self.enable_proxy = enable_proxy
         self.offline = offline
+        self._downloader = downloader
         self.extractor = ExtractManager()
         self.logger = logging.getLogger(__name__)
 
@@ -69,9 +74,10 @@ class DependencySource:
             self.logger.info(f"已删除临时目录: {self.temp_dir}")
 
     def _local_path(self, config: Dict[str, Any]) -> Optional[Path]:
-        """local_path 或非 http(s) 的 url 指向本地；相对路径以 base_dir 为基准"""
-        value = config.get('local_path') or config.get('url', '')
-        if not value or (not config.get('local_path') and value.startswith(('http://', 'https://'))):
+        """local_path 或非 http(s) 的 url 指向本地，否则是网络依赖；相对路径以 base_dir 为基准"""
+        url = config.get('url', '')
+        value = config.get('local_path') or (url if not url.startswith(('http://', 'https://')) else '')
+        if not value:
             return None
         path = Path(value)
         return path if path.is_absolute() else self.base_dir / path
@@ -82,15 +88,19 @@ class DependencySource:
     def _download(self, name: str, config: Dict[str, Any]) -> Path:
         archive_dir = self._archive_dir(name)
         archive_dir.mkdir(parents=True, exist_ok=True)
-        archive = self.downloader.download(name, config, archive_dir)
+        if self._downloader is None:
+            self._downloader = DownloadManager(self.proxy_url, self.enable_proxy)
+        archive = self._downloader.download(name, config, archive_dir)
         for stale in archive_dir.iterdir():
             if stale.is_file() and stale != archive:
                 stale.unlink()
         return archive
 
     def _cached_archive(self, name: str, config: Dict[str, Any]) -> Path:
+        if not config.get('format'):
+            raise FetchError(f"网络依赖 {name} 没有配置 format，离线模式无法识别缓存的压缩包")
         archive_dir = self._archive_dir(name)
-        suffix = f".{config.get('format', '')}"
+        suffix = f".{config['format']}"
         cached = sorted(p for p in archive_dir.glob(f"*{suffix}") if p.is_file()) \
             if archive_dir.is_dir() else []
         if len(cached) != 1:
@@ -105,4 +115,4 @@ class DependencySource:
         if content_dir.exists():
             shutil.rmtree(content_dir)
         self.extractor.extract_archive(archive, content_dir)
-        return self.extractor.find_extracted_content(content_dir)
+        return self.extractor.find_content_dir(content_dir)
