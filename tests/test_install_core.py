@@ -160,7 +160,6 @@ class TestPackageTimestampCli(unittest.TestCase):
 
 
 class TestRepositoryCustomConfig(unittest.TestCase):
-    """用仓库里真实的 package_cfg.json 和 custom_config 安装"""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()

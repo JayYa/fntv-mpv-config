@@ -80,7 +80,7 @@ tests/
 
 #### 4. test_manifest.py - 归档清单测试
 - **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
-- **TestCheckArchive**: 经 `contract_test`（传入与仓库配置相同的测试用依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset` 和 `--config`
+- **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset` 和 `--config`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
 - **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，命令行 `--result-file` 写出构建结果和 Release 说明

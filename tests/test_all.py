@@ -9,15 +9,13 @@ from pathlib import Path
 import sys
 import os
 
-# 仓库根目录给 src.* 导入，src 目录给其余模块的裸导入
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from unittest import mock
 
-from config_manager import ConfigManager, ConfigError, OUTPUT_DIR_ENV
-from download_manager import DownloadManager
-from extract_manager import ExtractManager
+from src.config_manager import ConfigManager, ConfigError, OUTPUT_DIR_ENV
+from src.download_manager import DownloadManager
+from src.extract_manager import ExtractManager
 from src.install_manager import InstallManager
 
 
@@ -133,7 +131,7 @@ class TestDownloadManager(unittest.TestCase):
         """设置 GITHUB_TOKEN 时 API 请求带认证头（CI 上避免匿名限流）"""
         env = {"GITHUB_TOKEN": "t0ken"}
         with mock.patch.dict(os.environ, env), \
-                mock.patch("download_manager.requests.get", return_value=self._fake_release_response()) as get:
+                mock.patch("src.download_manager.requests.get", return_value=self._fake_release_response()) as get:
             name = self.manager._get_github_asset_filename(
                 "shinchiro", "mpv-winbuild-cmake", "20261108", "mpv-x86_64-{version}", "7z")
 
@@ -143,7 +141,7 @@ class TestDownloadManager(unittest.TestCase):
     def test_github_api_anonymous_without_token(self):
         """没有 token 时仍可匿名请求（本地构建）"""
         with mock.patch.dict(os.environ, {}), \
-                mock.patch("download_manager.requests.get", return_value=self._fake_release_response()) as get:
+                mock.patch("src.download_manager.requests.get", return_value=self._fake_release_response()) as get:
             os.environ.pop("GITHUB_TOKEN", None)
             os.environ.pop("GH_TOKEN", None)
             self.manager._get_github_asset_filename(

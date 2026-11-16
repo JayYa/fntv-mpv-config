@@ -96,7 +96,7 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
     archive_version = f"fntv-mpv-v{timestamp}"
 
     manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, known,
-                              managed_dirs=layout.managed_dirs)
+                              managed_dirs=layout.manifest_managed_dirs)
     write_manifest(project_dir, manifest)
     zip_path = project_dir.parent / f"{PACKAGE_ARCHIVE_PREFIX}{timestamp}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -130,7 +130,7 @@ def contract_test(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
         错误列表，空列表表示通过
     """
     errors = check_archive(Path(zip_path), required_paths=layout.required_paths,
-                           managed_dirs=layout.managed_dirs,
+                           managed_dirs=layout.manifest_managed_dirs,
                            archive_version=archive_version, known=known)
     if manifest_asset is not None:
         errors += check_manifest_asset(Path(zip_path), Path(manifest_asset))

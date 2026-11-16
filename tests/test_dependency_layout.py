@@ -1,5 +1,3 @@
-"""依赖布局（dependency layout）：每个依赖在安装包里的位置、入口文件和托管目录"""
-
 import json
 import shutil
 import sys
@@ -69,7 +67,7 @@ class TestLoadLayout(unittest.TestCase):
 
         layout = self.load({"uosc": {"install_to": "portable_config/scripts/uosc"}})
 
-        self.assertEqual(sorted(dest for _src, dest in layout.base_config),
+        self.assertEqual(sorted(f.portable_config_path for f in layout.base_config),
                          ["fntv/defaults.conf", "mpv.conf"])
         self.assertEqual([(src.read_text(encoding="utf-8"), dest)
                           for src, dest in layout.placements["uosc"].custom_config],
@@ -99,7 +97,7 @@ class TestLoadLayout(unittest.TestCase):
             "portable_config/scripts/uosc/main.lua",
             "portable_config/scripts/uosc_danmaku/main.lua",
         ])
-        self.assertEqual(sorted(layout.managed_dirs),
+        self.assertEqual(sorted(layout.manifest_managed_dirs),
                          ["scripts/smart_skip", "scripts/uosc", "scripts/uosc_danmaku"])
 
 

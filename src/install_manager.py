@@ -45,17 +45,9 @@ class InstallManager:
         self.portable_config_dir.mkdir(parents=True)
 
     def install_base_config(self, layout: DependencyLayout):
-        """把基础配置装进 portable_config"""
         self._install_config_files(layout.base_config)
 
     def install_dependency(self, placement: Placement, content_dir: Path):
-        """
-        按依赖布局把依赖的内容目录装进 project 目录，再装它在 custom_config 下的配置
-
-        Args:
-            placement: 这个依赖在依赖布局里的位置
-            content_dir: 依赖的内容目录
-        """
         name = placement.name
         self.logger.info(f"开始安装 {name}")
 
@@ -257,5 +249,5 @@ class InstallManager:
             raise
     
     def _install_config_files(self, files: Iterable[ConfigFile]):
-        for source, dest in files:
-            self._copy_file(source, self.portable_config_dir / dest)
+        for f in files:
+            self._copy_file(f.source, self.portable_config_dir / f.portable_config_path)

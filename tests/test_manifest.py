@@ -110,19 +110,10 @@ VALID_PORTABLE_CONFIG = {
 
 ARCHIVE_VERSION = "fntv-mpv-v20261114_235959"
 
-# 和仓库 package_cfg.json 一样的入口文件和托管目录；没有 custom_config
-CLIENT_LAYOUT = load_layout({
-    "mpv": {"install_to": ".", "entry": "mpv.exe"},
-    "uosc": {"custom_install_rules": [], "entry": "portable_config/scripts/uosc/main.lua",
-             "managed_dir": "portable_config/scripts/uosc"},
-    "uosc_danmaku": {"install_to": "portable_config/scripts/uosc_danmaku",
-                     "entry": "portable_config/scripts/uosc_danmaku/main.lua",
-                     "managed_dir": "portable_config/scripts/uosc_danmaku"},
-    "smart_skip": {"install_to": "portable_config/scripts/smart_skip",
-                   "entry": "portable_config/scripts/smart_skip/main.lua",
-                   "managed_dir": "portable_config/scripts/smart_skip"},
-    "thumbfast": {"custom_install_rules": [], "entry": "portable_config/scripts/thumbfast.lua"},
-}, Path(__file__).parent / "no-custom-config")
+CLIENT_LAYOUT = load_layout(
+    json.loads((Path(__file__).parent.parent / "package_cfg.json").read_text(encoding="utf-8"))["dependencies"],
+    Path(__file__).parent.parent / "custom_config",
+)
 
 
 class TestCheckArchive(unittest.TestCase):
@@ -142,7 +133,7 @@ class TestCheckArchive(unittest.TestCase):
         shutil.rmtree(root, ignore_errors=True)
         write_portable_config(root / "portable_config", portable_files)
         manifest = build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"},
-                                  managed_dirs=CLIENT_LAYOUT.managed_dirs)
+                                  managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs)
         if edit_manifest:
             edit_manifest(manifest)
         if include_manifest:
@@ -460,7 +451,7 @@ class TestHistory(unittest.TestCase):
         def build_with_history(m):
             m.update(build_manifest(self.tmp / "build" / "portable_config", ARCHIVE_VERSION,
                                     {"uosc": "5.13.0"}, known=known,
-                                    managed_dirs=CLIENT_LAYOUT.managed_dirs))
+                                    managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs))
 
         def drop_file_hash(m):
             build_with_history(m)
