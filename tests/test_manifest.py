@@ -523,7 +523,7 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.dependencies = {
             "mpv": {
                 "name": "mpv", "version": "20261108", "local_path": str(pkgs / "mpv"),
-                "install_to": ".", "entry": "mpv.exe", "exclude_files": ["doc/*"],
+                "install_to": ".", "entry": "mpv.exe", "exclude_files": ["doc/**"],
             },
             "uosc": {
                 "name": "uosc", "version": "5.13.0", "local_path": str(pkgs / "uosc"),

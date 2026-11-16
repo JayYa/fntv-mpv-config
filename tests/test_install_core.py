@@ -14,7 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.dependency_layout import load_layout
-from src.install_manager import InstallManager
+from src.install_manager import InstallError, InstallManager
 
 
 class TestInstallManagerCore(unittest.TestCase):
@@ -139,6 +139,92 @@ class TestInstallManagerCore(unittest.TestCase):
         self.assertFalse((target_path / "README.md").exists())
         self.assertFalse((target_path / "scripts" / "data.txt").exists())
 
+    def write_source(self, files):
+        for rel in files:
+            path = self.source_dir / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rel)
+
+    def installed(self, target):
+        root = self.install_manager.output_dir / target
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+
+    def test_patterns_without_a_slash_match_file_names_at_any_depth(self):
+        self.write_source(["docs/CHANGELOG.md", "docs/LICENSE.txt", "docs/guide.txt"])
+
+        self.install({"install_to": "out", "exclude_files": ["*.md", "LICENSE*"]})
+
+        self.assertEqual(self.installed("out"), [
+            "config.json", "docs/guide.txt", "main.lua", "scripts/data.txt", "scripts/helper.lua",
+        ])
+
+    def test_patterns_with_a_slash_are_anchored_at_the_rule_source(self):
+        self.write_source(["scripts/deep/x.lua", "vendor/scripts/y.lua"])
+
+        self.install({"custom_install_rules": [
+            {"from": ".", "to": "one", "filter": ["scripts/*"]},
+            {"from": ".", "to": "any", "filter": ["scripts/**/*.lua"]},
+        ]})
+
+        self.assertEqual(self.installed("one"), ["scripts/data.txt", "scripts/helper.lua"])
+        self.assertEqual(self.installed("any"), ["scripts/deep/x.lua", "scripts/helper.lua"])
+
+    def test_question_marks_classes_and_leading_double_stars(self):
+        self.write_source(["a1.lua", "a2.lua", "ab.lua", "[x].lua", "vendor/deep/z.json"])
+
+        self.install({"custom_install_rules": [
+            {"from": ".", "to": "digits", "filter": ["a[0-9].lua"]},
+            {"from": ".", "to": "not_digit", "filter": ["a[!0-9].lua"]},
+            {"from": ".", "to": "one_char", "filter": ["a?.lua"], "exclude": ["a1.*"]},
+            {"from": ".", "to": "literal", "filter": ["[[]x].lua"]},
+            {"from": ".", "to": "json", "filter": ["**/deep/*.json", "**\\config.json"]},
+        ]})
+
+        self.assertEqual(self.installed("digits"), ["a1.lua", "a2.lua"])
+        self.assertEqual(self.installed("not_digit"), ["ab.lua"])
+        self.assertEqual(self.installed("one_char"), ["a2.lua", "ab.lua"])
+        self.assertEqual(self.installed("literal"), ["[x].lua"])
+        self.assertEqual(self.installed("json"), ["config.json", "vendor/deep/z.json"])
+
+    def test_a_rule_whose_source_is_missing_fails_the_install(self):
+        with self.assertRaisesRegex(InstallError, "test_plugin.*fonts"):
+            self.install({"custom_install_rules": [{"from": "fonts", "to": "portable_config/fonts"}]})
+
+    def test_a_filter_that_installs_nothing_fails_the_install(self):
+        for rule in ({"from": ".", "to": "x", "filter": ["*.lua", "*.dll"]},
+                     {"from": ".", "to": "x", "filter": ["*.md"], "exclude": ["README*"]}):
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(InstallError, "test_plugin"):
+                    self.install({"custom_install_rules": [rule]})
+
+    def test_two_dependencies_installing_the_same_file_fail_the_install(self):
+        layout = load_layout({
+            "a": {"install_to": "portable_config/scripts"},
+            "b": {"custom_install_rules": [{"from": "scripts", "to": "portable_config/scripts",
+                                            "filter": ["helper.lua"]}]},
+        }, self.test_dir / "custom_config")
+        self.install_manager.install_dependency(layout.placements["a"], self.source_dir / "scripts")
+
+        with self.assertRaisesRegex(InstallError, "portable_config/scripts/helper.lua"):
+            self.install_manager.install_dependency(layout.placements["b"], self.source_dir)
+
+    def test_paths_that_differ_only_in_case_are_the_same_file(self):
+        with self.assertRaisesRegex(InstallError, "test_plugin 的两条安装规则"):
+            self.install({"custom_install_rules": [
+                {"from": "scripts", "to": "Out", "filter": ["helper.lua"]},
+                {"from": "scripts", "to": "out", "filter": ["helper.lua"]},
+            ]})
+
+    def test_custom_config_may_replace_a_file_the_dependency_ships(self):
+        custom = self.test_dir / "custom_config" / "test_plugin" / "scripts" / "test_plugin" / "main.lua"
+        custom.parent.mkdir(parents=True)
+        custom.write_text("-- customised")
+
+        self.install({"install_to": "portable_config/scripts/test_plugin"})
+
+        installed = self.install_manager.portable_config_dir / "scripts" / "test_plugin" / "main.lua"
+        self.assertEqual(installed.read_text(), "-- customised")
+
 
 class TestPackageTimestampCli(unittest.TestCase):
     """--package-timestamp 在解析参数时就校验"""
@@ -184,9 +270,10 @@ class TestRepositoryCustomConfig(unittest.TestCase):
                              (self.custom_config_dir / "base" / rel).read_bytes())
 
     def test_uosc_danmaku_config_installed_from_dependency_dir(self):
-        empty_content = Path(self.temp_dir) / "content"
-        empty_content.mkdir()
-        self.install_manager.install_dependency(self.layout.placements["uosc_danmaku"], empty_content)
+        content = Path(self.temp_dir) / "content"
+        content.mkdir()
+        (content / "main.lua").write_text("-- danmaku")
+        self.install_manager.install_dependency(self.layout.placements["uosc_danmaku"], content)
 
         portable = self.install_manager.portable_config_dir
         self.assertEqual(

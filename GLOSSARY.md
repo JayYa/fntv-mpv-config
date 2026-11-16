@@ -34,7 +34,11 @@ _Avoid_: 解压目录, extracted
 
 **依赖布局（dependency layout）**:
 各依赖在安装包里的位置：内容目录装到哪、入口文件是什么、哪个目录由客户端整体替换，外加与依赖无关的基础配置。
-_Avoid_: 安装规则（单独指布局时）, 目录结构
+_Avoid_: 目录结构
+
+**安装规则（install rule）**:
+从一个依赖的内容目录里按 filter / exclude 选出文件、装到安装包内某个目录的一条规则；`install_to` 是它的简写。每个 filter 至少要装进一个文件，否则构建失败。
+_Avoid_: 复制规则, extraFiles
 
 **入口文件（entry）**:
 一个依赖必须出现在安装包里的那个文件，例如 mpv 的 `mpv.exe`、uosc 的 `scripts/uosc/main.lua`；缺了它客户端就不能用这个依赖。

@@ -39,10 +39,6 @@ tests/
 - **TestExtractManager**: 解压管理器测试
   - `test_get_format`: 测试文件格式识别
 
-- **TestInstallManager**: 安装管理器测试
-  - `test_matches_pattern`: 测试文件模式匹配
-  - `test_is_excluded`: 测试文件排除功能
-
 #### 2. test_dependency_source.py - 依赖来源测试
 - **TestDependencySource**: 全部经 `DependencySource.fetch` / `clean` 测，下载器用 mock 替换
   - 本地文件夹原样作为内容目录，不碰 temp；相对路径以配置文件所在目录为基准
@@ -55,6 +51,7 @@ tests/
 #### 2b. test_dependency_layout.py - 依赖布局测试
 - **TestLoadLayout**: 全部经 `load_layout` 测
   - `install_to` 和 `custom_install_rules` 必须且只能写一个；`exclude_files` 不能和规则一起写
+  - 安装规则的未知字段、越出内容目录的 `from`、空或非列表的 `filter`、写错的 `[...]`、以 `!` / `/` 开头或以 `/` 结尾的模式、空的或不是对象列表的 `custom_install_rules` 都报错；`exclude_files` 按同样的规则校验
   - `managed_dir` 必须在 `portable_config/` 下并包含 `entry`；路径不能越出安装包
   - `custom_config/base/` 和 `custom_config/<依赖名>/` 的文件装进 portable_config，同一路径出现两次就报错，依赖不能叫 `base`
   - 仓库的 `package_cfg.json` 推导出的必需路径（含 `mpv.exe`）和托管目录
@@ -72,6 +69,12 @@ tests/
     - 测试从根目录复制
     - 测试多种文件类型过滤
     - 测试子目录结构保持
+  - `test_patterns_without_a_slash_match_file_names_at_any_depth` / `test_patterns_with_a_slash_are_anchored_at_the_rule_source`: gitignore 式匹配语义
+  - `test_question_marks_classes_and_leading_double_stars`: `?`、`[...]`、`[!...]`、开头的 `**/` 和反斜杠写法
+  - `test_a_rule_whose_source_is_missing_fails_the_install` / `test_a_filter_that_installs_nothing_fails_the_install`: 规则对不上内容目录时报 `InstallError`
+  - `test_two_dependencies_installing_the_same_file_fail_the_install`: 两个依赖装同一个文件时报 `InstallError`
+  - `test_paths_that_differ_only_in_case_are_the_same_file`: 只差大小写的路径算同一个文件
+  - `test_custom_config_may_replace_a_file_the_dependency_ships`: `custom_config/<依赖名>/` 可以替换依赖自带的文件
 - **TestPackageTimestampCli**: `--package-timestamp` 参数的解析和校验
 - **TestRepositoryCustomConfig**: 用仓库里真实的 `package_cfg.json` 和 `custom_config` 测试
   - 不装任何依赖时基础配置 `custom_config/base/` 也装进 `portable_config/`

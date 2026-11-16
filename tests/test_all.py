@@ -16,7 +16,6 @@ from unittest import mock
 from src.config_manager import ConfigManager, ConfigError, OUTPUT_DIR_ENV
 from src.download_manager import DownloadManager
 from src.extract_manager import ExtractManager
-from src.install_manager import InstallManager
 
 
 class TestConfigManager(unittest.TestCase):
@@ -162,53 +161,6 @@ class TestExtractManager(unittest.TestCase):
         self.assertEqual(self.manager._get_format(Path("test.zip")), "zip")
         self.assertEqual(self.manager._get_format(Path("test.7z")), "7z")
         self.assertEqual(self.manager._get_format(Path("test.tar.gz")), "gz")
-
-
-class TestInstallManager(unittest.TestCase):
-    """安装管理器测试"""
-    
-    def setUp(self):
-        """设置测试环境"""
-        self.temp_dir = tempfile.mkdtemp()
-        self.output_dir = Path(self.temp_dir) / "output"
-        self.custom_config_dir = Path(self.temp_dir) / "custom_config"
-        
-        # 添加project_name参数
-        self.manager = InstallManager(self.output_dir, "test-project")
-    
-    def test_matches_pattern(self):
-        """测试模式匹配"""
-        self.assertTrue(self.manager._matches_pattern("test.lua", "*.lua"))
-        self.assertTrue(self.manager._matches_pattern("dir/test.lua", "**/*.lua"))
-        self.assertFalse(self.manager._matches_pattern("test.txt", "*.lua"))
-    
-    def test_is_excluded(self):
-        """测试排除功能"""
-        excludes = ["*.md", "LICENSE*", "**/.git*", "*/test/*"]  # 简化模式
-        
-        # 测试文件扩展名排除
-        self.assertTrue(self.manager._is_excluded("README.md", excludes))
-        self.assertTrue(self.manager._is_excluded("doc/CHANGELOG.md", excludes))
-        
-        # 测试特定文件名排除
-        self.assertTrue(self.manager._is_excluded("LICENSE", excludes))
-        self.assertTrue(self.manager._is_excluded("LICENSE.txt", excludes))
-        
-        # 测试目录排除
-        self.assertTrue(self.manager._is_excluded(".gitignore", excludes))  # 匹配 **/.git*
-        self.assertTrue(self.manager._is_excluded("src/test/test.lua", excludes))  # 匹配 */test/*
-        
-        # 测试不被排除的文件
-        self.assertFalse(self.manager._is_excluded("main.lua", excludes))
-        self.assertFalse(self.manager._is_excluded("src/core.lua", excludes))
-        self.assertFalse(self.manager._is_excluded("config.json", excludes))
-        
-        # 测试更简单的排除模式
-        simple_excludes = ["debug/*", "*.tmp", "cache*"]
-        self.assertTrue(self.manager._is_excluded("debug/info.log", simple_excludes))
-        self.assertTrue(self.manager._is_excluded("temp.tmp", simple_excludes))
-        self.assertTrue(self.manager._is_excluded("cache.dat", simple_excludes))
-        self.assertFalse(self.manager._is_excluded("src/main.lua", simple_excludes))
 
 
 if __name__ == '__main__':

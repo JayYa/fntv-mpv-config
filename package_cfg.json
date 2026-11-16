@@ -20,7 +20,7 @@
             "install_to": ".",
             "entry": "mpv.exe",
             "exclude_files": [
-                "doc/*"
+                "doc/**"
             ]
         },
         "uosc": {

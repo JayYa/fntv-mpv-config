@@ -1,6 +1,7 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple
+from typing import Any, Callable, List, Mapping, NamedTuple, Optional, Tuple
 
 from .manifest import DEFAULTS_CONF, PORTABLE_CONFIG
 
@@ -19,11 +20,23 @@ class ConfigFile(NamedTuple):
 
 
 @dataclass(frozen=True)
+class InstallRule:
+    """
+    source 相对内容目录、target 相对 project 目录，"." 表示目录本身。
+
+    filters 与 excludes 是 gitignore 式模式：不含 / 的匹配任意深度的文件名；
+    含 / 的从 source 起锚定，* 和 ? 不跨 /，** 匹配任意层目录。
+    """
+    source: str
+    target: str
+    filters: Tuple[str, ...]
+    excludes: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Placement:
     name: str
-    install_to: Optional[str]
-    install_rules: Tuple[Dict[str, Any], ...]
-    excludes: Tuple[str, ...]
+    install_rules: Tuple[InstallRule, ...]
     entry: Optional[str]
     managed_dir: Optional[str]
     custom_config: Tuple[ConfigFile, ...] = ()
@@ -90,27 +103,126 @@ def _placement(name: str, config: Mapping[str, Any],
         raise LayoutError(f"依赖 {name} 用 custom_install_rules 安装，exclude_files 不会生效，"
                           "请写进规则的 exclude")
     if install_to is not None:
-        install_to = _normalized_archive_path(name, "install_to", install_to)
-    for rule in rules or ():
-        _normalized_archive_path(name, "custom_install_rules 的 to", rule.get("to", ""))
+        install_rules = (InstallRule(
+            source=".",
+            target=_archive_path(name, "install_to", install_to),
+            filters=_ALL_FILES,
+            excludes=_patterns(name, "exclude_files", config.get("exclude_files", [])),
+        ),)
+    else:
+        if not isinstance(rules, list) or not rules:
+            raise LayoutError(f"依赖 {name} 的 custom_install_rules 必须是非空列表: {rules!r}")
+        install_rules = tuple(_install_rule(name, rule) for rule in rules)
 
     entry = config.get("entry")
     if entry is not None:
-        entry = _normalized_archive_path(name, "entry", entry)
+        entry = _archive_path(name, "entry", entry)
     managed_dir = config.get("managed_dir")
     if managed_dir is not None:
-        managed_dir = _normalized_archive_path(name, "managed_dir", managed_dir)
+        managed_dir = _archive_path(name, "managed_dir", managed_dir)
         if not managed_dir.startswith(PORTABLE_CONFIG + "/"):
             raise LayoutError(f"依赖 {name} 的 managed_dir 必须在 {PORTABLE_CONFIG}/ 下: {managed_dir}")
         if entry is None or not entry.startswith(managed_dir + "/"):
             raise LayoutError(f"依赖 {name} 的 managed_dir {managed_dir} 必须包含它的 entry")
-    return Placement(name=name, install_to=install_to, install_rules=tuple(rules or ()),
-                     excludes=tuple(config.get("exclude_files", ())),
+    return Placement(name=name, install_rules=install_rules,
                      entry=entry, managed_dir=managed_dir, custom_config=custom_config)
 
 
-def _normalized_archive_path(name: str, field: str, value: str) -> str:
+_ALL_FILES = ("**/*",)
+_RULE_KEYS = {"from", "to", "filter", "exclude"}
+
+
+def _install_rule(name: str, rule: Any) -> InstallRule:
+    if not isinstance(rule, Mapping):
+        raise LayoutError(f"依赖 {name} 的安装规则必须是对象: {rule!r}")
+    unknown = set(rule) - _RULE_KEYS
+    if unknown:
+        raise LayoutError(f"依赖 {name} 的安装规则有不认识的字段 {sorted(unknown)}，"
+                          f"只能写 {sorted(_RULE_KEYS)}")
+    filters = _patterns(name, "安装规则的 filter", rule.get("filter", list(_ALL_FILES)))
+    if not filters:
+        raise LayoutError(f"依赖 {name} 的安装规则的 filter 不能为空")
+    return InstallRule(
+        source=_relative_path(name, "安装规则的 from", rule.get("from", ""), "内容目录内"),
+        target=_archive_path(name, "安装规则的 to", rule.get("to", "")),
+        filters=filters,
+        excludes=_patterns(name, "安装规则的 exclude", rule.get("exclude", [])),
+    )
+
+
+def _patterns(name: str, field: str, value: Any) -> Tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(p, str) and p for p in value):
+        raise LayoutError(f"依赖 {name} 的 {field} 必须是非空字符串的列表: {value!r}")
+    patterns = tuple(p.replace("\\", "/") for p in value)
+    for p in patterns:
+        if p.startswith("!") or p.endswith("/") or p.startswith("/"):
+            raise LayoutError(f"依赖 {name} 的 {field} 不支持以 ! 或 / 开头、以 / 结尾的模式: {p!r}")
+        try:
+            pattern_matcher(p)
+        except re.error as e:
+            raise LayoutError(f"依赖 {name} 的 {field} 有写错的模式 {p!r}: {e}") from e
+    return patterns
+
+
+def _archive_path(name: str, field: str, value: str) -> str:
+    return _relative_path(name, field, value, "安装包内")
+
+
+def _relative_path(name: str, field: str, value: str, inside: str) -> str:
     path = PurePosixPath(value.replace("\\", "/"))
     if path.is_absolute() or ".." in path.parts or ":" in value:
-        raise LayoutError(f"依赖 {name} 的 {field} 必须是安装包内的相对路径: {value!r}")
+        raise LayoutError(f"依赖 {name} 的 {field} 必须是{inside}的相对路径: {value!r}")
     return str(path)
+
+
+def pattern_matcher(pattern: str) -> Callable[[str], bool]:
+    """
+    把安装规则的一个模式变成判断函数，参数是相对规则 from 的 / 分隔路径。
+
+    不含 / 的模式比文件名；含 / 的比整条路径，* ? [...] 不跨 /，** 匹配任意层目录（含零层）。
+    """
+    if "/" not in pattern:
+        regex = re.compile(_segment_regex(pattern))
+        return lambda rel: regex.fullmatch(rel.rsplit("/", 1)[-1]) is not None
+    parts = pattern.split("/")
+    pieces = []
+    for i, part in enumerate(parts):
+        last = i == len(parts) - 1
+        if part == "**":
+            pieces.append(".+" if last else "(?:[^/]+/)*")
+        else:
+            pieces.append(_segment_regex(part) + ("" if last else "/"))
+    regex = re.compile("".join(pieces))
+    return lambda rel: regex.fullmatch(rel) is not None
+
+
+def _segment_regex(segment: str) -> str:
+    out = []
+    i = 0
+    while i < len(segment):
+        c = segment[i]
+        end = _class_end(segment, i) if c == "[" else -1
+        if c == "*":
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        elif end != -1:
+            body = segment[i + 1:end]
+            negate = body.startswith("!")
+            body = body[1:] if negate else body
+            out.append("[" + ("^" if negate else "") + body.replace("\\", "\\\\").replace("[", "\\[") + "]")
+            i = end
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return "".join(out)
+
+
+def _class_end(segment: str, start: int) -> int:
+    """[ 在 start 处时返回配对的 ] 的位置，没有就是 -1；紧跟 [ 或 [! 的 ] 算字面字符"""
+    i = start + 1
+    if i < len(segment) and segment[i] == "!":
+        i += 1
+    if i < len(segment) and segment[i] == "]":
+        i += 1
+    return segment.find("]", i)
