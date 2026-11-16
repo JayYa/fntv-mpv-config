@@ -669,7 +669,12 @@ DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 
 ## 运行测试
 
-项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络：
+项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络。每个 PR 和推到 `main` 的提交都会在 CI（`.github/workflows/ci.yml`）里跑 `ruff check .` 和全部测试；本地先装开发依赖：
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+```
 
 ### 推荐方式：使用内置测试运行器
 
