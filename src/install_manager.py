@@ -1,10 +1,6 @@
-"""
-安装管理模块
-按依赖布局把内容目录和 custom_config 装进 project 目录
-"""
 import logging
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, NamedTuple
 
 from .dependency_layout import ConfigFile, DependencyLayout, InstallRule, Placement, pattern_matcher
@@ -66,9 +62,8 @@ class InstallManager:
         name = placement.name
         self.logger.info(f"开始安装 {name}")
         for rule in placement.install_rules:
-            target_dir = Path(rule.target)
-            for rel, source in _select_files(name, rule, Path(content_dir)).items():
-                self._install_content(name, source, (target_dir / rel).as_posix())
+            for archive_path, source in _sources_by_archive_path(name, rule, Path(content_dir)).items():
+                self._install_content(name, source, archive_path)
         self._install_config_files(name, placement.custom_config)
         self.logger.info(f"{name} 安装完成")
 
@@ -95,16 +90,15 @@ class InstallManager:
         self.logger.debug(f"已复制: {source} -> {target}")
 
 
-def _select_files(name: str, rule: InstallRule, content_dir: Path) -> Dict[str, Path]:
-    """返回规则选中的 {相对规则 to 的路径: 源文件}，每个 filter 至少选中一个"""
-    source = content_dir / rule.source
+def _sources_by_archive_path(name: str, rule: InstallRule, content_dir: Path) -> Dict[str, Path]:
+    source = content_dir / rule.content_path
     if source.is_file():
         candidates = [(source, source.name)]
     elif source.is_dir():
         candidates = [(p, p.relative_to(source).as_posix())
                       for p in sorted(source.rglob("*")) if p.is_file()]
     else:
-        raise InstallError(f"{name} 的安装规则 from={rule.source!r} 在内容目录里不存在: {source}")
+        raise InstallError(f"{name} 的安装规则 from={rule.content_path!r} 在内容目录里不存在: {source}")
 
     excluded = [pattern_matcher(p) for p in rule.excludes]
     kept = {rel: path for path, rel in candidates if not any(m(rel) for m in excluded)}
@@ -113,7 +107,8 @@ def _select_files(name: str, rule: InstallRule, content_dir: Path) -> Dict[str, 
         matches = pattern_matcher(pattern)
         hits = {rel: path for rel, path in kept.items() if matches(rel)}
         if not hits:
-            raise InstallError(f"{name} 的安装规则 from={rule.source!r} 里 filter {pattern!r} "
+            raise InstallError(f"{name} 的安装规则 from={rule.content_path!r} 里 filter {pattern!r} "
                                f"排除 {list(rule.excludes)} 之后一个文件都没选中")
         selected.update(hits)
-    return selected
+    project_dir = PurePosixPath(rule.project_path)
+    return {(project_dir / rel).as_posix(): path for rel, path in selected.items()}

@@ -21,14 +21,8 @@ class ConfigFile(NamedTuple):
 
 @dataclass(frozen=True)
 class InstallRule:
-    """
-    source 相对内容目录、target 相对 project 目录，"." 表示目录本身。
-
-    filters 与 excludes 是 gitignore 式模式：不含 / 的匹配任意深度的文件名；
-    含 / 的从 source 起锚定，* 和 ? 不跨 /，** 匹配任意层目录。
-    """
-    source: str
-    target: str
+    content_path: str
+    project_path: str
     filters: Tuple[str, ...]
     excludes: Tuple[str, ...] = ()
 
@@ -104,8 +98,8 @@ def _placement(name: str, config: Mapping[str, Any],
                           "请写进规则的 exclude")
     if install_to is not None:
         install_rules = (InstallRule(
-            source=".",
-            target=_archive_path(name, "install_to", install_to),
+            content_path=".",
+            project_path=_archive_path(name, "install_to", install_to),
             filters=_ALL_FILES,
             excludes=_patterns(name, "exclude_files", config.get("exclude_files", [])),
         ),)
@@ -143,8 +137,8 @@ def _install_rule(name: str, rule: Any) -> InstallRule:
     if not filters:
         raise LayoutError(f"依赖 {name} 的安装规则的 filter 不能为空")
     return InstallRule(
-        source=_relative_path(name, "安装规则的 from", rule.get("from", ""), "内容目录内"),
-        target=_archive_path(name, "安装规则的 to", rule.get("to", "")),
+        content_path=_relative_path(name, "安装规则的 from", rule.get("from", ""), "内容目录内"),
+        project_path=_archive_path(name, "安装规则的 to", rule.get("to", "")),
         filters=filters,
         excludes=_patterns(name, "安装规则的 exclude", rule.get("exclude", [])),
     )
@@ -201,12 +195,12 @@ def _segment_regex(segment: str) -> str:
     i = 0
     while i < len(segment):
         c = segment[i]
-        end = _class_end(segment, i) if c == "[" else -1
+        end = _closing_bracket(segment, i) if c == "[" else None
         if c == "*":
             out.append("[^/]*")
         elif c == "?":
             out.append("[^/]")
-        elif end != -1:
+        elif end is not None:
             body = segment[i + 1:end]
             negate = body.startswith("!")
             body = body[1:] if negate else body
@@ -218,11 +212,8 @@ def _segment_regex(segment: str) -> str:
     return "".join(out)
 
 
-def _class_end(segment: str, start: int) -> int:
-    """[ 在 start 处时返回配对的 ] 的位置，没有就是 -1；紧跟 [ 或 [! 的 ] 算字面字符"""
-    i = start + 1
-    if i < len(segment) and segment[i] == "!":
-        i += 1
-    if i < len(segment) and segment[i] == "]":
-        i += 1
-    return segment.find("]", i)
+def _closing_bracket(segment: str, open_at: int) -> Optional[int]:
+    first_member = open_at + 2 if segment.startswith("!", open_at + 1) else open_at + 1
+    first_member_is_a_bracket = segment.startswith("]", first_member)
+    end = segment.find("]", first_member + first_member_is_a_bracket)
+    return None if end == -1 else end
