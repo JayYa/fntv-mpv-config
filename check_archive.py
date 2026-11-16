@@ -13,9 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.config_manager import ConfigError, ConfigManager  # noqa: E402
-from src.dependency_layout import LayoutError, load_layout  # noqa: E402
 from src.package_archive import KnownHashes, contract_test  # noqa: E402
+from src.package_config import ConfigError, load_package_config  # noqa: E402
 
 DEFAULT_CONFIG = Path(__file__).parent / "package_cfg.json"
 
@@ -35,10 +34,9 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        config = ConfigManager(args.config)
-        layout = load_layout(config.get_config()["dependencies"], config.get_custom_config_dir())
-    except (ConfigError, LayoutError) as e:
-        print(f"读取依赖布局失败: {e}")
+        layout = load_package_config(args.config).layout
+    except ConfigError as e:
+        print(f"读取打包配置失败: {e}")
         return 1
     errors = contract_test(Path(args.zip_path), KnownHashes.load(args.history, args.previous_manifest),
                            layout, archive_version=args.archive_version,

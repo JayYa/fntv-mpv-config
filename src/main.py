@@ -6,15 +6,15 @@ import argparse
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from .config_manager import ConfigManager
-from .dependency_layout import load_layout
 from .dependency_source import DependencySource
 from .install_manager import InstallManager
 from .log_manager import LogManager
 from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                               remove_package_archives, validate_package_timestamp)
+from .package_config import (ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig,
+                             load_package_config)
 from .release import BuildResult, Dependency, write_build_result
 
 
@@ -24,19 +24,15 @@ class MPVConfigManager:
     def __init__(self, config_path: str = "package_cfg.json", log_level: str = "INFO",
                  output_dir: Optional[str] = None):
         """
-        初始化MPV配置管理器
-
         Args:
             config_path: 配置文件路径
             log_level: 日志级别
             output_dir: 输出目录覆盖值，None 时依次取环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件
         """
-        # 初始化日志
         self.log_manager = LogManager(log_level)
         self.logger = self.log_manager.get_logger(__name__)
-
-        # 初始化配置管理器
-        self.config_manager = ConfigManager(config_path, output_dir)
+        self.config_path = config_path
+        self.output_dir_override = output_dir
 
     def run(self, dependencies: Optional[List[str]] = None,
             skip_download: bool = False,
@@ -52,8 +48,8 @@ class MPVConfigManager:
         安装前先清空 project 目录，安装包里只有本次安装的文件。
 
         Args:
-            dependencies: 要处理的依赖项名称列表，None表示处理所有启用的依赖项
-            skip_download: 离线模式，网络依赖只用 temp 里上次下载的压缩包，没有就失败
+            dependencies: 要处理的依赖项名称列表，None 表示处理全部依赖
+            skip_download: 离线模式，GitHub Release 依赖只用 temp 里上次下载的压缩包，没有就失败
             skip_install: 跳过安装步骤
             create_package: 是否创建安装包
             cleanup: 是否清理临时文件
@@ -67,25 +63,23 @@ class MPVConfigManager:
         try:
             self.logger.info("开始MPV配置管理流程")
 
-            # 加载配置
-            config = self.config_manager.load_config()
-            self.logger.info(f"配置加载完成: {config['name']} v{config['version']}")
+            config = self._load()
+            self.logger.info(f"配置加载完成: {config.project_name}")
 
-            layout = load_layout(config['dependencies'], self.config_manager.get_custom_config_dir())
-            source = self._dependency_source(offline=skip_download)
-            installer = self._installer()
+            source = self._dependency_source(config, offline=skip_download)
+            installer = self._installer(config)
 
-            target_dependencies = self._get_target_dependencies(dependencies)
-            self.logger.info(f"将处理以下依赖项: {list(target_dependencies.keys())}")
+            target_dependencies = _target_dependencies(config, dependencies)
+            self.logger.info(f"将处理以下依赖项: {list(target_dependencies)}")
 
             if not skip_install:
                 installer.reset_project_dir()
-                installer.install_base_config(layout)
-            for dep_name, dep_config in target_dependencies.items():
+                installer.install_base_config(config.layout)
+            for dep_name, entry in target_dependencies.items():
                 try:
-                    content_dir = source.fetch(dep_name, dep_config)
+                    content_dir = source.fetch(dep_name, entry.source)
                     if not skip_install:
-                        installer.install_dependency(layout.placements[dep_name], content_dir)
+                        installer.install_dependency(config.layout.placements[dep_name], content_dir)
                 except Exception as e:
                     self.logger.error(f"处理依赖项 {dep_name} 失败: {e}")
                     return None
@@ -93,20 +87,18 @@ class MPVConfigManager:
             result = BuildResult(
                 output_dir=installer.base_output_dir.resolve(),
                 project_dir=installer.output_dir.resolve(),
-                processed_dependencies=tuple(
-                    Dependency(str(dep.get('name', name)), str(dep.get('version', '')))
-                    for name, dep in target_dependencies.items()
-                ),
+                processed_dependencies=tuple(Dependency(entry.display_name, entry.version)
+                                             for entry in target_dependencies.values()),
             )
 
             if create_package and not skip_install:
                 known = KnownHashes.load(history_path, previous_manifest_path)
                 if previous_manifest_path:
                     self.logger.info(f"并入上一版清单: {previous_manifest_path}")
+                components = {name: entry.version for name, entry in config.dependencies.items()}
                 try:
-                    package = build_package_archive(installer.output_dir,
-                                                    self._get_components(), known, layout,
-                                                    timestamp=package_timestamp)
+                    package = build_package_archive(installer.output_dir, components, known,
+                                                    config.layout, timestamp=package_timestamp)
                 except ContractTestFailed as e:
                     for error in e.errors:
                         self.logger.error(f"契约测试失败: {error}")
@@ -127,86 +119,17 @@ class MPVConfigManager:
             self.logger.error(f"运行失败: {e}")
             return None
 
-    def _dependency_source(self, offline: bool = False) -> DependencySource:
-        return DependencySource(self.config_manager.get_temp_dir(),
-                                base_dir=self.config_manager.config_path.resolve().parent,
-                                proxy_url=self.config_manager.get_github_proxy(),
-                                enable_proxy=self.config_manager.is_proxy_enabled(),
-                                offline=offline)
-
-    def _installer(self) -> InstallManager:
-        return InstallManager(self.config_manager.get_output_dir(),
-                              self.config_manager.get_project_name())
-
-    def _get_target_dependencies(self, dependencies: Optional[List[str]]) -> dict:
-        """
-        获取目标依赖项
-
-        Args:
-            dependencies: 指定的依赖项列表
-
-        Returns:
-            目标依赖项字典
-        """
-        all_dependencies = self.config_manager.get_enabled_dependencies()
-
-        if dependencies is None:
-            return all_dependencies
-
-        target_dependencies = {}
-        for dep_name in dependencies:
-            if dep_name in all_dependencies:
-                target_dependencies[dep_name] = all_dependencies[dep_name]
-            else:
-                self.logger.warning(f"依赖项 {dep_name} 不存在或未启用")
-
-        return target_dependencies
-
-    def _get_components(self) -> dict:
-        """清单的 components：已启用的依赖项名 -> package_cfg.json 里的版本"""
-        return {
-            name: str(dep.get('version', ''))
-            for name, dep in self.config_manager.get_enabled_dependencies().items()
-        }
-
     def list_dependencies(self):
-        """列出所有依赖项"""
-        try:
-            dependencies = self.config_manager.get_enabled_dependencies()
+        """
+        列出所有依赖项和它们的来源
 
-            self.logger.info("可用的依赖项:")
-            for name, config in dependencies.items():
-                status = "启用" if config.get('enabled', True) else "禁用"
-                self.logger.info(f"  - {name}: {config['name']} {config['version']} ({status})")
-
-        except Exception as e:
-            self.logger.error(f"列出依赖项失败: {e}")
-
-    def enable_dependency(self, name: str):
-        """启用依赖项"""
-        try:
-            config = self.config_manager.get_config()
-            if name in config['dependencies']:
-                config['dependencies'][name]['enabled'] = True
-                self.config_manager.save_config(config)
-                self.logger.info(f"已启用依赖项: {name}")
-            else:
-                self.logger.error(f"依赖项不存在: {name}")
-        except Exception as e:
-            self.logger.error(f"启用依赖项失败: {e}")
-
-    def disable_dependency(self, name: str):
-        """禁用依赖项"""
-        try:
-            config = self.config_manager.get_config()
-            if name in config['dependencies']:
-                config['dependencies'][name]['enabled'] = False
-                self.config_manager.save_config(config)
-                self.logger.info(f"已禁用依赖项: {name}")
-            else:
-                self.logger.error(f"依赖项不存在: {name}")
-        except Exception as e:
-            self.logger.error(f"禁用依赖项失败: {e}")
+        Raises:
+            ConfigError: 配置文件不合法
+        """
+        config = self._load()
+        self.logger.info("依赖项:")
+        for name, entry in config.dependencies.items():
+            self.logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}）")
 
     def clean_directories(self, clean_temp: bool = True, clean_output: bool = False):
         """
@@ -215,22 +138,53 @@ class MPVConfigManager:
         Args:
             clean_temp: 删掉整个临时目录
             clean_output: 删掉 project 目录、输出目录里的安装包和清单资产；输出目录里的其它东西不动
+
+        Raises:
+            ConfigError: 配置文件不合法
+            OSError: 删除失败
         """
-        try:
-            if clean_temp:
-                self._dependency_source().clean()
+        config = self._load()
+        if clean_temp:
+            self._dependency_source(config).clean()
 
-            if clean_output:
-                output_dir = self.config_manager.get_output_dir()
-                if not output_dir.exists():
-                    self.logger.info(f"输出目录不存在: {output_dir}")
-                    return
-                self._installer().remove_project_dir()
-                for path in remove_package_archives(output_dir):
-                    self.logger.info(f"已删除文件: {path.name}")
+        if clean_output:
+            if not config.output_dir.exists():
+                self.logger.info(f"输出目录不存在: {config.output_dir}")
+                return
+            self._installer(config).remove_project_dir()
+            for path in remove_package_archives(config.output_dir):
+                self.logger.info(f"已删除文件: {path.name}")
 
-        except Exception as e:
-            self.logger.error(f"清理目录失败: {e}")
+    def _load(self) -> PackageConfig:
+        return load_package_config(self.config_path, self.output_dir_override)
+
+    @staticmethod
+    def _dependency_source(config: PackageConfig, offline: bool = False) -> DependencySource:
+        return DependencySource(config.temp_dir, proxy_url=config.github_proxy,
+                                enable_proxy=config.enable_proxy, offline=offline)
+
+    @staticmethod
+    def _installer(config: PackageConfig) -> InstallManager:
+        return InstallManager(config.output_dir, config.project_name)
+
+
+def _target_dependencies(config: PackageConfig,
+                         names: Optional[List[str]]) -> Dict[str, DependencySpec]:
+    if names is None:
+        return dict(config.dependencies)
+    unknown = [name for name in names if name not in config.dependencies]
+    if unknown:
+        raise ConfigError(f"没有这些依赖项: {', '.join(unknown)}；"
+                          f"可选: {', '.join(config.dependencies)}")
+    return {name: config.dependencies[name] for name in names}
+
+
+def _describe(entry: DependencySpec) -> str:
+    source = entry.source
+    if isinstance(source, GithubRelease):
+        return f"GitHub Release {source.owner}/{source.repo}"
+    kind = "本地文件夹" if isinstance(source, LocalDir) else "本地压缩包"
+    return f"{kind} {source.path}"
 
 
 def _package_timestamp_arg(value: str) -> str:
@@ -248,11 +202,9 @@ def create_cli_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例用法:
-  python -m src.main                          # 处理所有启用的依赖项
+  python -m src.main                          # 处理全部依赖项
   python -m src.main --deps mpv uosc --skip-package  # 只处理指定的依赖项，不打包
-  python -m src.main --list                   # 列出所有依赖项
-  python -m src.main --enable uosc_danmaku    # 启用指定依赖项
-  python -m src.main --disable uosc_danmaku   # 禁用指定依赖项
+  python -m src.main --list                   # 检查配置并列出所有依赖项
   python -m src.main --skip-download          # 离线构建，用上次 --skip-cleanup 留下的压缩包
   python -m src.main --skip-install           # 只下载，不安装
   python -m src.main --skip-package           # 跳过打包步骤
@@ -262,7 +214,6 @@ def create_cli_parser() -> argparse.ArgumentParser:
         """
     )
 
-    # 主要操作参数
     parser.add_argument(
         '--config', '-c',
         default='package_cfg.json',
@@ -280,11 +231,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
         help='要处理的依赖项名称列表；必须同时带 --skip-package 或 --skip-install'
     )
 
-    # 控制选项
     parser.add_argument(
         '--skip-download',
         action='store_true',
-        help='离线模式：不访问网络，网络依赖只用临时目录里上次下载的压缩包'
+        help='离线模式：不访问网络，GitHub Release 依赖只用临时目录里上次下载的压缩包'
              '（上次构建需带 --skip-cleanup），没有就失败；离线构建结束时同样会删掉临时目录，'
              '要连续离线构建就每次都带 --skip-cleanup'
     )
@@ -330,21 +280,10 @@ def create_cli_parser() -> argparse.ArgumentParser:
         help='不清理临时文件'
     )
 
-    # 管理操作
     parser.add_argument(
         '--list',
         action='store_true',
-        help='列出所有依赖项'
-    )
-
-    parser.add_argument(
-        '--enable',
-        help='启用指定的依赖项'
-    )
-
-    parser.add_argument(
-        '--disable',
-        help='禁用指定的依赖项'
+        help='检查配置并列出所有依赖项；配置不合法时以退出码 1 结束'
     )
 
     parser.add_argument(
@@ -353,7 +292,6 @@ def create_cli_parser() -> argparse.ArgumentParser:
         help='清理目录 (temp: 整个临时目录, output: project 目录、安装包和清单资产, all: 两者)'
     )
 
-    # 日志选项
     parser.add_argument(
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
@@ -374,37 +312,29 @@ def parse_args(parser: argparse.ArgumentParser, argv: Optional[List[str]] = None
     return args
 
 
-def main():
-    """主函数"""
+def main(argv: Optional[List[str]] = None):
+    """
+    命令行入口；argv 不含程序名，None 时读 sys.argv
+
+    任何命令失败都以退出码 1 结束，参数错误以 2 结束。
+    """
     parser = create_cli_parser()
-    args = parse_args(parser)
+    args = parse_args(parser, argv)
 
     try:
-        # 创建管理器实例
         manager = MPVConfigManager(args.config, args.log_level, args.output_dir)
 
-        # 执行相应的操作
         if args.list:
             manager.list_dependencies()
-        elif args.enable:
-            manager.enable_dependency(args.enable)
-        elif args.disable:
-            manager.disable_dependency(args.disable)
         elif args.clean:
-            # 处理清理命令
-            if args.clean == 'temp':
-                manager.clean_directories(clean_temp=True, clean_output=False)
-            elif args.clean == 'output':
-                manager.clean_directories(clean_temp=False, clean_output=True)
-            elif args.clean == 'all':
-                manager.clean_directories(clean_temp=True, clean_output=True)
+            manager.clean_directories(clean_temp=args.clean in ('temp', 'all'),
+                                      clean_output=args.clean in ('output', 'all'))
         else:
-            # 执行主流程
             result = manager.run(
                 dependencies=args.deps,
                 skip_download=args.skip_download,
                 skip_install=args.skip_install,
-                create_package=not (args.skip_package),
+                create_package=not args.skip_package,
                 cleanup=not args.skip_cleanup,
                 package_timestamp=args.package_timestamp,
                 history_path=args.manifest_history,

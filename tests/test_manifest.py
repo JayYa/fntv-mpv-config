@@ -272,8 +272,12 @@ class TestCheckArchive(unittest.TestCase):
     def test_command_line_reads_entries_from_the_given_config(self):
         config = self.tmp / "package_cfg.json"
         config.write_text(json.dumps({
-            "name": "x", "version": "1", "config": {"custom_config_dir": str(self.tmp / "none")},
-            "dependencies": {"extra": {"install_to": ".", "entry": "extra.exe"}},
+            "name": "x",
+            "config": {"output_dir": "out", "temp_dir": "temp", "custom_config_dir": "none"},
+            "dependencies": {"extra": {
+                "name": "extra", "version": "1", "url": "https://github.com/x/extra/releases",
+                "filename_pattern": "extra", "format": "zip", "install_to": ".", "entry": "extra.exe",
+            }},
         }), encoding="utf-8")
         empty_history = self.tmp / "empty-history.json"
         empty_history.write_text('{"archives": [], "files": {}}', encoding="utf-8")

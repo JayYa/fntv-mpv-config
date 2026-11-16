@@ -24,9 +24,17 @@ _Avoid_: 静音模式
 
 ### 构建与发布（build & release）
 
+**打包配置（package config）**:
+从 `package_cfg.json` 读出的整份值：构建设置（输出目录、临时目录、代理）、依赖布局和各依赖的来源，加载时一次校验完。
+_Avoid_: 配置（单独使用时）, cfg
+
 **依赖（dependency）**:
-打进安装包的一个上游组件：mpv 本体或一个插件，来自 GitHub Release 或仓库内的本地包。
+打进安装包的一个上游组件：mpv 本体或一个插件，来自 GitHub Release 或仓库内的本地包。所有依赖都打进安装包，没有停用状态（见 ADR-0001）。
 _Avoid_: 插件（指 mpv 本体时）, package
+
+**依赖来源（dependency source）**:
+一个依赖从哪来：GitHub Release、本地文件夹或本地压缩包，三者之一。
+_Avoid_: 下载源, url（指本地路径时）
 
 **内容目录（content dir）**:
 一个依赖交给安装步骤的目录：压缩包解压后去掉单一外层根目录，本地文件夹则是它本身。

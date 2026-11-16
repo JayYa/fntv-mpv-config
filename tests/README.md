@@ -8,7 +8,9 @@
 
 ```
 tests/
-├── test_all.py          # 原有的基础功能测试
+├── test_all.py          # 下载器与解压器的基础测试
+├── test_package_config.py # 打包配置：经 load_package_config 测三种依赖来源和字段校验
+├── test_main.py         # 命令行：经 main(argv) 测 --list、--clean、--deps 的输出和退出码
 ├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
@@ -25,13 +27,21 @@ tests/
 
 ### 测试模块详情
 
-#### 1. test_all.py - 基础功能测试
-- **TestConfigManager**: 配置管理器测试
-  - `test_load_config`: 测试配置文件加载
-  - `test_config_validation`: 测试配置验证
-  - `test_get_enabled_dependencies`: 测试获取已启用依赖项
-  - `test_output_dir_*`: 测试输出目录优先级（`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`），空环境变量视为未设置，覆盖值不写回配置文件
+#### 0. test_package_config.py - 打包配置测试
+- **TestLoadPackageConfig**: 全部经 `load_package_config` 测
+  - GitHub Release、本地文件夹、本地压缩包三种来源；`local_path` 和 `config` 里的路径按配置文件所在目录解析
+  - 依赖条目写 `enabled`（报错里指向 ADR-0001）、不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format` 都报 `ConfigError`
+  - 顶层和 `config` 块的多余字段、缺必填项、`enable_proxy` 不是布尔值、文件不存在或不是 JSON 对象都报错；依赖布局的错误也作为 `ConfigError` 抛出
+  - 输出目录优先级：`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`，空环境变量视为未设置
+  - 仓库的 `package_cfg.json` 能加载
 
+#### 0b. test_main.py - 命令行测试
+- **TestCommandLine**: 经 `main(argv)` 测
+  - `--list` 列出每个依赖的显示名、版本和来源
+  - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在的依赖名也以 1 结束
+  - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
+
+#### 1. test_all.py - 基础功能测试
 - **TestDownloadManager**: 下载管理器测试
   - `test_github_api_uses_token_when_set`: 设了 `GITHUB_TOKEN` 时 API 请求带认证头
   - `test_github_api_anonymous_without_token`: 没设时匿名请求
@@ -41,7 +51,7 @@ tests/
 
 #### 2. test_dependency_source.py - 依赖来源测试
 - **TestDependencySource**: 全部经 `DependencySource.fetch` / `clean` 测，下载器用 mock 替换
-  - 本地文件夹原样作为内容目录，不碰 temp；相对路径以配置文件所在目录为基准
+  - 本地文件夹原样作为内容目录，不碰 temp
   - 本地压缩包解压到 temp，单一外层根目录被去掉
   - 本地路径不存在时报 `FetchError`
   - 下载后解压，同一依赖之前下载的旧压缩包被删掉
@@ -167,10 +177,8 @@ class TestNewFeature(unittest.TestCase):
 ```
 运行MPV配置管理工具测试...
 ==================================================
-test_config_validation (tests.test_all.TestConfigManager)
-测试配置验证 ... ok
-test_get_enabled_dependencies (tests.test_all.TestConfigManager)
-测试获取已启用的依赖项 ... ok
+test_get_format (tests.test_all.TestExtractManager)
+测试格式识别 ... ok
 ...
 test_default_installation (tests.test_install_core.TestInstallManagerCore)
 测试默认安装功能 ... ok

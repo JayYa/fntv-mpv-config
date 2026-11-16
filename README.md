@@ -6,7 +6,7 @@
 
 - 🎯 **自动化管理**: 自动下载MPV播放器和插件
 - 🔧 **版本控制**: 通过配置文件管理所有组件版本
-- 🔌 **插件热插拔**: 轻松启用/禁用插件
+- 🔌 **插件可配置**: 在 package_cfg.json 里增删依赖项
 - 📦 **智能打包**: 自动创建便携式安装包
 - 🗜️ **多格式支持**: 支持7z、zip、rar等多种压缩格式
 - 🛠️ **自定义配置**: 支持自定义配置文件
@@ -44,7 +44,7 @@ fntv-mpv-config/
 ├── src/                    # 源代码目录
 │   ├── __init__.py
 │   ├── main.py            # 主程序
-│   ├── config_manager.py  # 配置管理
+│   ├── package_config.py  # 打包配置：读 package_cfg.json，加载时校验全部字段
 │   ├── dependency_layout.py # 依赖布局：安装目标、入口文件、托管目录和基础配置
 │   ├── download_manager.py # 下载管理
 │   ├── extract_manager.py # 解压管理
@@ -68,7 +68,6 @@ fntv-mpv-config/
 ├── requirements.txt       # Python依赖
 ├── run.py                 # 运行脚本
 ├── run_tests.py           # 测试运行器
-├── validate_config.py     # 检查 package_cfg.json
 ├── check_archive.py       # 对打包出的 zip 跑契约测试
 ├── build_manifest_history.py # 生成 manifest-history.json
 └── README.md              # 文档
@@ -112,38 +111,33 @@ pip install -r requirements.txt
 {
   "dependencies": {
     "mpv": {
-      "version": "20261108",
-      "enabled": true
+      "version": "20261108"
     },
     "uosc": {
-      "version": "5.13.0",
-      "enabled": true
+      "version": "5.13.0"
     },
     "uosc_danmaku": {
-      "version": "v2.1.0",
-      "enabled": true
+      "version": "v2.1.0"
     }
   }
 }
 ```
 
+所有依赖都打进安装包，没有停用开关；下线插件要删掉整个依赖项（见 [ADR 0001](docs/adr/0001-entries-are-a-client-contract.md)）。
+
 ### 3. 基本使用
 
-一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
+一次完整运行会下载并安装所有依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
 
 ```bash
-# 处理所有启用的依赖项
+# 处理所有依赖项
 python run.py
 
 # 只处理指定的依赖项（空格分隔）。只装一部分依赖打不出完整的安装包，必须同时带 --skip-package 或 --skip-install
 python run.py --deps mpv uosc --skip-package
 
-# 列出已启用的依赖项（禁用的不显示）
+# 检查 package_cfg.json 并列出所有依赖项及来源；配置不合法时退出码为 1
 python run.py --list
-
-# 启用/禁用依赖项（会按 2 空格缩进重写整个 package_cfg.json）
-python run.py --enable uosc_danmaku
-python run.py --disable uosc_danmaku
 
 # 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败。
 # 默认运行结束会删掉 temp（离线构建也一样），所以先带 --skip-cleanup 联网构建一次；
@@ -189,10 +183,8 @@ python run.py --clean all       # 两者都删
 {
   "my_local_plugin": {
     "name": "本地插件",
-    "enabled": true,
     "local_path": "./local_packages/plugin.zip",
     "version": "local",
-    "format": "zip",
     "install_to": "portable_config/scripts/my_local_plugin",
     "exclude_files": ["*.md", "LICENSE*"]
   }
@@ -204,9 +196,8 @@ python run.py --clean all       # 两者都删
 {
   "my_folder_plugin": {
     "name": "本地文件夹插件",
-    "enabled": true,
     "local_path": "./local_packages/extracted_plugin",
-    "version": "folder",
+    "version": "local",
     "custom_install_rules": [
       {
         "from": "src",
@@ -219,20 +210,7 @@ python run.py --clean all       # 两者都删
 }
 ```
 
-#### 方式3：将 url 设置为本地路径
-```json
-{
-  "my_local_mpv": {
-    "name": "本地MPV",
-    "enabled": true,
-    "url": "./local_packages/mpv-local.7z",
-    "version": "local",
-    "filename_pattern": "mpv-local",
-    "format": "7z",
-    "install_to": "."
-  }
-}
-```
+本地依赖只认 `local_path`：路径是文件夹就当内容目录，是文件就按扩展名解压；不写 `url`、`filename_pattern`、`format`，写了会报错。`local_path` 在加载时就要存在。
 
 ### 支持格式
 - **压缩文件**：zip、7z、rar、tar、tar.gz、tar.bz2等所有支持的格式
@@ -278,7 +256,6 @@ python run.py --clean all       # 两者都删
       "version": "20261108",
       "filename_pattern": "mpv-x86_64-{version}",
       "format": "7z",
-      "enabled": true,
       "install_to": ".",                // 内容目录整个装到安装包根目录
       "entry": "mpv.exe",               // 安装包里必须有的入口文件
       "exclude_files": [                // 排除不需要的文件，只能和 install_to 一起用
@@ -291,7 +268,6 @@ python run.py --clean all       # 两者都删
       "version": "5.13.0",
       "filename_pattern": "uosc",
       "format": "zip",
-      "enabled": true,
       "entry": "portable_config/scripts/uosc/main.lua",
       "managed_dir": "portable_config/scripts/uosc",  // 客户端整体替换的目录
       "custom_install_rules": [          // 自定义安装规则，和 install_to 二选一
@@ -315,14 +291,16 @@ python run.py --clean all       # 两者都删
 
 #### 核心配置参数
 
-每个依赖项的依赖布局（启用与否都算）在加载时校验，不合法就不构建。下面的路径都相对安装包根目录，不能是绝对路径或含 `..`：
+每个依赖项在加载时校验，不合法就不构建；不认识的字段（包括已废弃的 `enabled`）也报错。下面的路径都相对安装包根目录，不能是绝对路径或含 `..`：
 
 - `install_to`: 内容目录整个装到哪，如 mpv 的 `"."`、插件的 `"portable_config/scripts/<名>"`。和 `custom_install_rules` 必须且只能写一个，没有默认值
 - `custom_install_rules`: 自定义安装规则数组，按规则挑文件装
 - `exclude_files`: 排除文件数组，只能和 `install_to` 一起用；和 `custom_install_rules` 一起写会报错，排除要写进规则的 `exclude`
 - `entry`: 客户端离不开的入口文件（可选）。契约测试要求每个声明了 `entry` 的依赖都在安装包里，停用这个依赖就发不了版；要下线插件就删掉整个依赖项（见 [ADR 0001](docs/adr/0001-entries-are-a-client-contract.md)）
 - `managed_dir`: 客户端整体替换的目录（可选），必须在 `portable_config/` 下并包含 `entry`，写进清单的 `managedDirs`
-- `url`、`version`、`filename_pattern`、`format`: 网络依赖项必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
+- `name`、`version`: 所有依赖必填的非空字符串；`name` 是显示名，写进 Release 说明
+- `url` 和 `local_path` 必须且只能写一个，决定依赖来源。`url` 必须是 `https://github.com/<owner>/<repo>/releases`，不能写本地路径
+- `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
 - `version` 也写进清单的 `components`
 
 #### 输出目录
@@ -334,6 +312,8 @@ python run.py --clean all       # 两者都删
 3. `package_cfg.json` 的 `config.output_dir`
 
 覆盖值只作用于本次运行，不会写回配置文件。`--clean output` 同样按这个顺序确定要清理的目录。
+
+`config` 里的 `output_dir`、`temp_dir`、`custom_config_dir` 必填，相对路径按 `package_cfg.json` 所在目录解析；`--output-dir` 和环境变量按当前工作目录解析。`github_proxy`、`enable_proxy` 可不写。顶层只能写 `name`（必填）、`version`、`description`、`config`、`dependencies`。
 
 #### exclude_files 排除模式
 
@@ -506,7 +486,7 @@ custom_config/
 - 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
 - `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
 - 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
-- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：启用的插件、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
+- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：本次处理的依赖、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
 - 自动上传构建产物，保留 30 天
 
 ## 归档清单 fntv-manifest.json
@@ -582,7 +562,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 项目采用模块化设计，各模块职责明确：
 
-1. **ConfigManager**: 配置文件的读取、验证和管理
+1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段
 2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 DownloadManager（GitHub Release 下载）和 ExtractManager（多种压缩格式的解压）
 3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件。安装、清单的 `managedDirs` 和契约测试的必需路径都从它来
 4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
@@ -611,8 +591,8 @@ python run.py --skip-cleanup
 # 只处理特定依赖项（空格分隔），不打包
 python run.py --deps uosc uosc_danmaku --skip-package
 
-# 检查 package_cfg.json：缺少的字段、不存在的本地路径、不完整的安装规则
-python validate_config.py
+# 检查 package_cfg.json：缺少或多余的字段、不存在的本地路径、不合法的安装规则，出错时退出码为 1
+python run.py --list
 ```
 
 #### 文件排除调试
@@ -697,7 +677,7 @@ python run_tests.py
 
 # 输出示例：
 # 运行MPV配置管理工具测试...
-# test_config_validation ... ok  
+# test_list_shows_every_dependency_and_where_it_comes_from ... ok
 # test_is_excluded ... ok
 # ✅ 所有测试通过!
 ```
@@ -711,7 +691,8 @@ python tests/test_all.py
 
 ### 测试覆盖范围
 
-- ✅ **ConfigManager**: 配置加载、验证、依赖项管理、输出目录优先级
+- ✅ **package_config**: 三种依赖来源、字段校验、相对路径基准、输出目录优先级
+- ✅ **命令行**: `--list`、`--clean`、`--deps` 的输出和退出码
 - ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
 - ✅ **DownloadManager**: `GITHUB_TOKEN` 认证
 - ✅ **ExtractManager**: 格式识别

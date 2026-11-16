@@ -6,9 +6,10 @@ from pathlib import Path
 from unittest import mock
 
 from src.dependency_source import DependencySource, FetchError
+from src.package_config import GithubRelease, LocalArchive, LocalDir
 
-NETWORK_DEP = {"url": "https://github.com/tomasklaen/uosc/releases", "version": "5.13.0",
-               "filename_pattern": "uosc", "format": "zip"}
+UOSC = GithubRelease(owner="tomasklaen", repo="uosc", version="5.13.0",
+                     filename_pattern="uosc", format="zip")
 
 
 def write_zip(path: Path, files: dict):
@@ -23,7 +24,7 @@ class TestDependencySource(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.temp_dir = self.tmp / "temp"
         self.downloader = mock.Mock()
-        self.source = DependencySource(self.temp_dir, self.tmp, downloader=self.downloader)
+        self.source = DependencySource(self.temp_dir, downloader=self.downloader)
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -33,7 +34,7 @@ class TestDependencySource(unittest.TestCase):
         plugin.mkdir(parents=True)
         (plugin / "main.lua").write_text("-- plugin")
 
-        content = self.source.fetch("plugin", {"local_path": "./local_packages/plugin"})
+        content = self.source.fetch("plugin", LocalDir(plugin))
 
         self.assertEqual(content, plugin)
         self.assertFalse(self.temp_dir.exists())
@@ -41,26 +42,26 @@ class TestDependencySource(unittest.TestCase):
     def test_local_archive_loses_its_single_root_folder(self):
         write_zip(self.tmp / "plugin.zip", {"plugin-1.0/main.lua": "-- plugin"})
 
-        content = self.source.fetch("plugin", {"local_path": "plugin.zip"})
+        content = self.source.fetch("plugin", LocalArchive(self.tmp / "plugin.zip"))
 
         self.assertEqual((content / "main.lua").read_text(), "-- plugin")
         self.assertTrue(content.is_relative_to(self.temp_dir / "plugin"))
 
     def test_missing_local_path_fails(self):
         with self.assertRaises(FetchError):
-            self.source.fetch("plugin", {"local_path": "nowhere"})
+            self.source.fetch("plugin", LocalDir(self.tmp / "nowhere"))
 
     def test_download_is_unpacked_and_older_downloads_are_dropped(self):
         old = self.temp_dir / "uosc" / "uosc-old.zip"
         write_zip(old, {"old.lua": ""})
 
-        def download(name, config, dest_dir):
+        def download(name, release, dest_dir):
             archive = dest_dir / "uosc.zip"
             write_zip(archive, {"scripts/uosc/main.lua": "-- uosc", "fonts/a.otf": ""})
             return archive
         self.downloader.download.side_effect = download
 
-        content = self.source.fetch("uosc", NETWORK_DEP)
+        content = self.source.fetch("uosc", UOSC)
 
         self.assertTrue((content / "scripts" / "uosc" / "main.lua").is_file())
         self.assertFalse(old.exists())
@@ -68,25 +69,19 @@ class TestDependencySource(unittest.TestCase):
     def test_offline_uses_the_cached_download(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip",
                   {"scripts/uosc/main.lua": "-- cached", "fonts/a.otf": ""})
-        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
 
-        content = offline.fetch("uosc", NETWORK_DEP)
+        content = offline.fetch("uosc", UOSC)
 
         self.assertEqual((content / "scripts" / "uosc" / "main.lua").read_text(), "-- cached")
         self.downloader.download.assert_not_called()
 
     def test_offline_without_cache_fails(self):
-        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
 
         with self.assertRaises(FetchError):
-            offline.fetch("uosc", NETWORK_DEP)
+            offline.fetch("uosc", UOSC)
         self.downloader.download.assert_not_called()
-
-    def test_offline_needs_a_format_to_find_the_cache(self):
-        offline = DependencySource(self.temp_dir, self.tmp, offline=True, downloader=self.downloader)
-
-        with self.assertRaisesRegex(FetchError, "format"):
-            offline.fetch("uosc", {**NETWORK_DEP, "format": ""})
 
     def test_clean_removes_the_temp_dir(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip", {"a": ""})
