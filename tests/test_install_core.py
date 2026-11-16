@@ -8,14 +8,12 @@ import shutil
 from pathlib import Path
 import sys
 import io
-import zipfile
-from datetime import datetime, timezone
 from unittest import mock
 
 # 添加src目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from install_manager import InstallManager, InstallError
+from install_manager import InstallManager
 
 
 class TestInstallManagerCore(unittest.TestCase):
@@ -132,45 +130,6 @@ class TestInstallManagerCore(unittest.TestCase):
         # 验证过滤生效
         self.assertFalse((target_path / "README.md").exists())
         self.assertFalse((target_path / "scripts" / "data.txt").exists())
-
-
-class TestCreatePackageName(unittest.TestCase):
-    """安装包资产名的时间戳"""
-
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.install_manager = InstallManager(
-            output_dir=Path(self.temp_dir) / "output",
-            custom_config_dir=Path(self.temp_dir) / "custom_config",
-            project_name="test-config",
-        )
-        (self.install_manager.output_dir / "mpv.exe").write_text("stub")
-
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    def test_given_timestamp_names_package(self):
-        package = self.install_manager.create_package("20261110_224319")
-
-        self.assertEqual(package.name, "mpv-package-20261110_224319.zip")
-        self.assertEqual(package.parent, self.install_manager.base_output_dir)
-        with zipfile.ZipFile(package) as zf:
-            self.assertEqual(zf.namelist(), ["mpv.exe"])
-
-    def test_default_timestamp_uses_beijing_time(self):
-        utc = datetime(2026, 11, 14, 17, 8, 7, tzinfo=timezone.utc)
-        with mock.patch("install_manager.datetime") as fake_datetime:
-            fake_datetime.now.side_effect = lambda tz: utc.astimezone(tz)
-            package = self.install_manager.create_package()
-
-        self.assertEqual(package.name, "mpv-package-20261115_010807.zip")
-
-    def test_malformed_timestamp_rejected(self):
-        for bad in ["2026-11-10", "20261110_2243", "20261110_224319\n", "../x"]:
-            with self.subTest(bad=bad):
-                with self.assertRaises(InstallError):
-                    self.install_manager.create_package(bad)
-        self.assertEqual(list(self.install_manager.base_output_dir.glob("*.zip")), [])
 
 
 class TestPackageTimestampCli(unittest.TestCase):

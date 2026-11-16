@@ -8,14 +8,17 @@ import fnmatch
 import hashlib
 import json
 import zipfile
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, Mapping, Optional, Set, Tuple
 
 MANIFEST_NAME = "fntv-manifest.json"
+DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
 FORMAT_VERSION = 1
 PORTABLE_CONFIG = "portable_config"
 
 ROLES = ("managed", "config", "seed")
+ROLES_KEPT_BY_CLIENT = ("config", "seed")
 
 # 归属规则：按顺序匹配相对 portable_config 的正斜杠路径，先命中的生效
 ROLE_RULES = [
@@ -63,11 +66,6 @@ REQUIRED_PATHS = [
 
 class ManifestError(Exception):
     """清单生成错误"""
-
-
-def archive_version_for(timestamp: str) -> str:
-    """安装包时间戳对应的 Release tag，也是清单的 archiveVersion"""
-    return f"fntv-mpv-v{timestamp}"
 
 
 def write_manifest(archive_root: Path, manifest: dict) -> Path:
@@ -133,47 +131,68 @@ def history_from_archives(archives: List[Tuple[str, Path]]) -> dict:
     }
 
 
-def _known_hashes(history: Optional[dict], previous_manifest: Optional[dict]):
+@dataclass(frozen=True)
+class KnownHashes:
     """
-    合并提交的历史和上一版清单
-
-    Returns:
-        (路径 -> 哈希集合, 上一版清单里已是 obsolete 的路径集合)
+    已知哈希：提交的历史哈希与上一版清单合并后，每个路径出现过的全部 sha256
     """
-    known: Dict[str, Set[str]] = {}
-    previously_obsolete: Set[str] = set()
-    if history:
-        for path, hashes in history.get("files", {}).items():
-            known.setdefault(path, set()).update(hashes)
-    if previous_manifest:
-        for entry in previous_manifest.get("files", []):
-            known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
-            known[entry["path"]].add(entry["sha256"])
-        for entry in previous_manifest.get("obsolete", []):
-            known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
-            previously_obsolete.add(entry["path"])
-    return known, previously_obsolete
+    hashes: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
+    previously_obsolete: FrozenSet[str] = frozenset()
 
+    @classmethod
+    def merge(cls, history: Optional[dict] = None,
+              previous_manifest: Optional[dict] = None) -> "KnownHashes":
+        """合并提交的历史（load_history 的结果）和上一版清单"""
+        known: Dict[str, Set[str]] = {}
+        previously_obsolete: Set[str] = set()
+        if history:
+            for path, hashes in history.get("files", {}).items():
+                known.setdefault(path, set()).update(hashes)
+        if previous_manifest:
+            for entry in previous_manifest.get("files", []):
+                known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
+                known[entry["path"]].add(entry["sha256"])
+            for entry in previous_manifest.get("obsolete", []):
+                known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
+                previously_obsolete.add(entry["path"])
+        return cls({path: frozenset(h) for path, h in known.items()}, frozenset(previously_obsolete))
 
-def _is_obsolete_candidate(path: str, previously_obsolete: Set[str]) -> bool:
-    """本次没有的历史路径是否进 obsolete：托管文件进，config/seed 不进（客户端一律保留）"""
-    return path in previously_obsolete or role_of(path) not in ("config", "seed")
+    @classmethod
+    def load(cls, history_path: Optional[Path] = None,
+             previous_manifest_path: Optional[Path] = None) -> "KnownHashes":
+        """
+        从文件读取已知哈希
+
+        Args:
+            history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
+            previous_manifest_path: 上一版 Release 的 fntv-manifest.json，None 时只用历史哈希
+        """
+        history = load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH)
+        previous_manifest = None
+        if previous_manifest_path:
+            with open(previous_manifest_path, "r", encoding="utf-8") as f:
+                previous_manifest = json.load(f)
+        return cls.merge(history, previous_manifest)
+
+    def of(self, path: str) -> Set[str]:
+        return set(self.hashes.get(path, ()))
+
+    def is_obsolete_candidate(self, path: str) -> bool:
+        return path in self.previously_obsolete or role_of(path) not in ROLES_KEPT_BY_CLIENT
 
 
 def build_manifest(portable_config_dir: Path, archive_version: str,
-                   components: Dict[str, str], history: Optional[dict] = None,
-                   previous_manifest: Optional[dict] = None) -> dict:
+                   components: Dict[str, str], known: Optional[KnownHashes] = None) -> dict:
     """
     扫描 portable_config 目录生成清单
 
     Args:
-        history: 提交的历史哈希（load_history 的结果），并进 knownHashes
-        previous_manifest: 上一版清单，它的 knownHashes 和 obsolete 也并进来
+        known: 已知哈希，并进 knownHashes 和 obsolete；None 时视为没有历史
 
     Raises:
         ManifestError: 有文件没有归属
     """
-    known, previously_obsolete = _known_hashes(history, previous_manifest)
+    known = known or KnownHashes()
     portable_config_dir = Path(portable_config_dir)
     files: List[dict] = []
     unclassified: List[str] = []
@@ -188,7 +207,7 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
         digest = sha256_file(item)
         files.append({
             "path": rel, "sha256": digest, "role": role,
-            "knownHashes": sorted(known.get(rel, set()) | {digest}),
+            "knownHashes": sorted(known.of(rel) | {digest}),
         })
     if unclassified:
         raise ManifestError(f"以下文件没有归属规则: {', '.join(unclassified)}")
@@ -197,8 +216,8 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
     current = {f["path"] for f in files}
     obsolete = [
         {"path": path, "knownHashes": sorted(hashes)}
-        for path, hashes in sorted(known.items())
-        if path not in current and _is_obsolete_candidate(path, previously_obsolete)
+        for path, hashes in sorted(known.hashes.items())
+        if path not in current and known.is_obsolete_candidate(path)
     ]
     return {
         "formatVersion": FORMAT_VERSION,
@@ -250,20 +269,19 @@ def check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]:
 
 
 def check_archive(zip_path: Path, archive_version: Optional[str] = None,
-                  history: Optional[dict] = None,
-                  previous_manifest: Optional[dict] = None) -> List[str]:
+                  known: Optional[KnownHashes] = None) -> List[str]:
     """
-    契约测试：检查打包产出的 zip 和其中的清单是否一致、是否满足客户端依赖
+    检查打包产出的 zip 和其中的清单是否一致、是否满足客户端依赖
 
     Args:
         zip_path: 安装包路径
         archive_version: 期望的 archiveVersion（本次 Release tag），None 时不检查
-        history: 提交的历史哈希；其中每个哈希都必须还在清单里（只增不减）
-        previous_manifest: 上一版清单；同上
+        known: 已知哈希；其中每个哈希都必须还在清单里（只增不减），None 时视为没有历史
 
     Returns:
         错误列表，空列表表示通过
     """
+    known = known or KnownHashes()
     errors: List[str] = []
     with zipfile.ZipFile(zip_path) as z:
         names = [n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")]
@@ -324,8 +342,8 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
             errors.append(f"{path} 的 role 不合法: {role!r}")
         elif role != role_of(path):
             errors.append(f"{path} 的 role 应为 {role_of(path)!r}，实际为 {role!r}")
-        known = entry.get("knownHashes")
-        if not isinstance(known, list) or entry.get("sha256") not in known:
+        entry_known = entry.get("knownHashes")
+        if not isinstance(entry_known, list) or entry.get("sha256") not in entry_known:
             errors.append(f"{path} 的 knownHashes 应包含本次 sha256")
 
     for path in sorted(set(zip_hashes) - seen):
@@ -352,13 +370,12 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
     current_known = {
         f.get("path"): set(f.get("knownHashes") or []) for f in manifest.get("files") or []
     }
-    known, previously_obsolete = _known_hashes(history, previous_manifest)
-    for path, hashes in sorted(known.items()):
+    for path, hashes in sorted(known.hashes.items()):
         if path in current_known:
             have = current_known[path]
         elif path in obsolete:
             have = obsolete[path]
-        elif _is_obsolete_candidate(path, previously_obsolete):
+        elif known.is_obsolete_candidate(path):
             errors.append(f"历史托管路径 {path} 本次没有，应出现在 obsolete 里")
             continue
         else:

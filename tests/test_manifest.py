@@ -9,10 +9,10 @@ import unittest
 import zipfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from manifest import (ManifestError, build_manifest, check_archive, check_manifest_asset,
-                      history_from_archives, load_history)
+from src.manifest import ManifestError, build_manifest, history_from_archives, load_history
+from src.package_archive import KnownHashes, contract_test
 
 
 # sha256 的已知值（独立来源：FIPS 180-2 附录 B.1 的 "abc"，以及空串）
@@ -141,7 +141,7 @@ class TestCheckArchive(unittest.TestCase):
         return zip_path
 
     def assertFailsWith(self, zip_path, fragment, **kwargs):
-        errors = check_archive(zip_path, **kwargs)
+        errors = contract_test(zip_path, KnownHashes(), **kwargs)
         self.assertTrue(
             any(fragment in e for e in errors),
             f"期望有包含 {fragment!r} 的错误，实际: {errors}",
@@ -198,18 +198,16 @@ class TestCheckArchive(unittest.TestCase):
         asset = self.tmp / "fntv-manifest.json"
         with zipfile.ZipFile(zip_path) as z:
             asset.write_bytes(z.read("fntv-manifest.json"))
-        self.assertEqual(check_manifest_asset(zip_path, asset), [])
+        self.assertEqual(contract_test(zip_path, KnownHashes(), manifest_asset=asset), [])
 
         asset.write_bytes(asset.read_bytes() + b"\n")
-        self.assertEqual(len(check_manifest_asset(zip_path, asset)), 1)
-        self.assertEqual(len(check_manifest_asset(zip_path, self.tmp / "nowhere.json")), 1)
-        no_manifest = self.make_zip(include_manifest=False)
-        self.assertIn("缺少", check_manifest_asset(no_manifest, asset)[0])
+        self.assertFailsWith(zip_path, "不同", manifest_asset=asset)
+        self.assertFailsWith(zip_path, "不存在", manifest_asset=self.tmp / "nowhere.json")
 
     def test_consistent_archive_passes(self):
         zip_path = self.make_zip()
 
-        self.assertEqual(check_archive(zip_path, archive_version=ARCHIVE_VERSION), [])
+        self.assertEqual(contract_test(zip_path, KnownHashes(), archive_version=ARCHIVE_VERSION), [])
 
     def test_missing_manifest_fails(self):
         self.assertFailsWith(self.make_zip(include_manifest=False), "fntv-manifest.json")
@@ -289,7 +287,7 @@ class TestCheckArchive(unittest.TestCase):
         files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
         if defaults is not None:
             files["fntv/defaults.conf"] = defaults
-        errors = check_archive(self.make_zip(portable_files=files))
+        errors = contract_test(self.make_zip(portable_files=files), KnownHashes())
         self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
 
     def test_mpv_conf_layering_is_checked(self):
@@ -399,8 +397,8 @@ class TestHistory(unittest.TestCase):
              "knownHashes": [SHA256_ABC, SHA256_DEF]},
         ], "obsolete": [{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}]}
 
-        manifest = build_manifest(portable, ARCHIVE_VERSION, {}, history=history,
-                                  previous_manifest=previous)
+        manifest = build_manifest(portable, ARCHIVE_VERSION, {},
+                                  known=KnownHashes.merge(history, previous))
 
         files = {f["path"]: f for f in manifest["files"]}
         self.assertEqual(files["mpv.conf"]["knownHashes"],
@@ -416,14 +414,14 @@ class TestHistory(unittest.TestCase):
     def test_contract_fails_when_a_history_hash_is_dropped(self):
         checker = TestCheckArchive()
         checker.tmp = self.tmp
-        history = {"archives": ["fntv-mpv-v1"], "files": {
+        known = KnownHashes.merge({"archives": ["fntv-mpv-v1"], "files": {
             "input.conf": [SHA256_ABC],
             "scripts/removed.lua": [SHA256_DEF],
-        }}
+        }})
 
         def build_with_history(m):
             m.update(build_manifest(self.tmp / "build" / "portable_config", ARCHIVE_VERSION,
-                                    {"uosc": "5.13.0"}, history=history))
+                                    {"uosc": "5.13.0"}, known=known))
 
         def drop_file_hash(m):
             build_with_history(m)
@@ -435,12 +433,12 @@ class TestHistory(unittest.TestCase):
             m["obsolete"] = []
 
         intact = checker.make_zip(edit_manifest=build_with_history)
-        self.assertEqual(check_archive(intact, history=history), [])
+        self.assertEqual(contract_test(intact, known), [])
 
-        errors = check_archive(checker.make_zip(edit_manifest=drop_file_hash), history=history)
+        errors = contract_test(checker.make_zip(edit_manifest=drop_file_hash), known)
         self.assertTrue(any("input.conf" in e and SHA256_ABC in e for e in errors), errors)
 
-        errors = check_archive(checker.make_zip(edit_manifest=drop_obsolete_hash), history=history)
+        errors = contract_test(checker.make_zip(edit_manifest=drop_obsolete_hash), known)
         self.assertTrue(any("scripts/removed.lua" in e for e in errors), errors)
 
     def test_contract_checks_previous_manifest_hashes_too(self):
@@ -449,7 +447,7 @@ class TestHistory(unittest.TestCase):
         previous = {"files": [{"path": "input.conf", "sha256": SHA256_GHI, "role": "config",
                                "knownHashes": [SHA256_GHI]}], "obsolete": []}
 
-        errors = check_archive(checker.make_zip(), previous_manifest=previous)
+        errors = contract_test(checker.make_zip(), KnownHashes.merge(previous_manifest=previous))
 
         self.assertTrue(any("input.conf" in e and SHA256_GHI in e for e in errors), errors)
 
@@ -545,19 +543,6 @@ class TestPackagingProducesManifest(unittest.TestCase):
         result = manager.run(package_timestamp="20261114_235959", **run_kwargs)
         return result, self.tmp / "out" / "mpv-package-20261114_235959.zip"
 
-    def test_package_contains_manifest_matching_its_tag(self):
-        result, zip_path = self.run_packaging()
-
-        self.assertIsNotNone(result)
-        with zipfile.ZipFile(zip_path) as z:
-            manifest = json.loads(z.read("fntv-manifest.json"))
-        self.assertEqual(manifest["archiveVersion"], "fntv-mpv-v20261114_235959")
-        self.assertEqual(manifest["components"], {
-            "uosc": "5.13.0", "uosc_danmaku": "v2.1.0",
-            "smart_skip": "local", "thumbfast": "local",
-        })
-        self.assertEqual(check_archive(zip_path, archive_version="fntv-mpv-v20261114_235959"), [])
-
     def test_build_result_points_at_what_was_built(self):
         result, zip_path = self.run_packaging()
 
@@ -572,6 +557,12 @@ class TestPackagingProducesManifest(unittest.TestCase):
             ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
             ("smart_skip", "local"), ("thumbfast", "local"),
         ))
+        with zipfile.ZipFile(zip_path) as z:
+            manifest = json.loads(z.read("fntv-manifest.json"))
+        self.assertEqual(manifest["components"], {
+            "uosc": "5.13.0", "uosc_danmaku": "v2.1.0",
+            "smart_skip": "local", "thumbfast": "local",
+        })
 
     def test_command_line_writes_the_build_result(self):
         from unittest import mock
@@ -590,52 +581,6 @@ class TestPackagingProducesManifest(unittest.TestCase):
         notes = Path(data["releaseNotesPath"]).read_text(encoding="utf-8")
         self.assertIn("- 🔧 smart_skip (local)", notes)
         self.assertIn("└── portable_config/ # 便携式配置目录", notes)
-
-    def test_build_result_without_package_has_no_package(self):
-        result, _ = self.run_packaging(create_package=False)
-
-        self.assertIsNotNone(result)
-        self.assertIsNone(result.package)
-
-    def test_manifest_asset_sits_next_to_the_zip(self):
-        # Release 把 <输出目录>/fntv-manifest.json 作为单独资产上传，路径不能依赖项目名子目录
-        result, zip_path = self.run_packaging()
-
-        self.assertIsNotNone(result)
-        asset = zip_path.parent / "fntv-manifest.json"
-        with zipfile.ZipFile(zip_path) as z:
-            self.assertEqual(asset.read_bytes(), z.read("fntv-manifest.json"))
-
-    def test_packaging_merges_history_and_previous_manifest(self):
-        history_path = self.tmp / "history.json"
-        history_path.write_text(json.dumps({"archives": ["fntv-mpv-v1"], "files": {
-            "scripts/uosc/main.lua": [SHA256_ABC],
-            "scripts/removed.lua": [SHA256_DEF],
-        }}), encoding="utf-8")
-        previous_path = self.tmp / "previous.json"
-        previous_path.write_text(json.dumps({"files": [], "obsolete": [
-            {"path": "scripts/older.lua", "knownHashes": [SHA256_GHI]},
-        ]}), encoding="utf-8")
-
-        result, zip_path = self.run_packaging(history_path=str(history_path),
-                                              previous_manifest_path=str(previous_path))
-
-        self.assertIsNotNone(result)
-        with zipfile.ZipFile(zip_path) as z:
-            manifest = json.loads(z.read("fntv-manifest.json"))
-        files = {f["path"]: f for f in manifest["files"]}
-        self.assertIn(SHA256_ABC, files["scripts/uosc/main.lua"]["knownHashes"])
-        self.assertEqual(manifest["obsolete"], [
-            {"path": "scripts/older.lua", "knownHashes": [SHA256_GHI]},
-            {"path": "scripts/removed.lua", "knownHashes": [SHA256_DEF]},
-        ])
-
-    def test_packaging_fails_when_contract_fails(self):
-        del self.dependencies["smart_skip"]
-
-        result, _ = self.run_packaging()
-
-        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

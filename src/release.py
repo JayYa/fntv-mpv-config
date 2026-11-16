@@ -5,6 +5,8 @@ from pathlib import Path
 from string import Template
 from typing import List, Mapping, NamedTuple, Optional, Tuple
 
+from .package_archive import PackageArchive
+
 RELEASE_NOTES_TEMPLATE = Path(__file__).parent.parent / "templates" / "release-notes.md"
 RELEASE_NOTES_NAME = "release-notes.md"
 
@@ -52,14 +54,6 @@ SUFFIX_COMMENTS = {
 class Dependency(NamedTuple):
     name: str
     version: str
-
-
-@dataclass(frozen=True)
-class PackageArchive:
-    path: Path
-    manifest_asset_path: Path
-    archive_version: str
-    timestamp: str
 
 
 @dataclass(frozen=True)
