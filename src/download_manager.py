@@ -79,7 +79,6 @@ class DownloadManager:
         download_url = (f"https://github.com/{release.owner}/{release.repo}"
                         f"/releases/download/{release.version}/{filename}")
 
-        # 如果启用代理，添加代理前缀
         if self.enable_proxy and self.proxy_url:
             download_url = f"{self.proxy_url}/{download_url}"
 

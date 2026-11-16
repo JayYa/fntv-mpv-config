@@ -1,6 +1,3 @@
-"""
-下载与解压管理器的单元测试
-"""
 import unittest
 from pathlib import Path
 import sys
@@ -15,8 +12,6 @@ from src.extract_manager import ExtractManager
 
 
 class TestDownloadManager(unittest.TestCase):
-    """下载管理器测试"""
-
     def setUp(self):
         self.manager = DownloadManager()
 
@@ -49,14 +44,10 @@ class TestDownloadManager(unittest.TestCase):
 
 
 class TestExtractManager(unittest.TestCase):
-    """解压管理器测试"""
-
     def setUp(self):
-        """设置测试环境"""
         self.manager = ExtractManager()
 
     def test_get_format(self):
-        """测试格式识别"""
         self.assertEqual(self.manager._get_format(Path("test.zip")), "zip")
         self.assertEqual(self.manager._get_format(Path("test.7z")), "7z")
         self.assertEqual(self.manager._get_format(Path("test.tar.gz")), "gz")

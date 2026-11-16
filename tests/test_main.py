@@ -10,8 +10,6 @@ from src.main import main
 
 
 class TestCommandLine(unittest.TestCase):
-    """管理命令经 main(argv) 测：输出和退出码"""
-
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         (self.tmp / "plugin").mkdir()
@@ -36,7 +34,6 @@ class TestCommandLine(unittest.TestCase):
         }), encoding="utf-8")
 
     def run_main(self, *args):
-        """返回 (退出码, 输出)；正常结束时退出码为 0"""
         out = io.StringIO()
         with mock.patch("sys.stdout", out):
             try:
