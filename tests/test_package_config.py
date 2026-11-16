@@ -58,7 +58,7 @@ class TestLoadPackageConfig(unittest.TestCase):
         self.assertEqual((uosc.display_name, uosc.version), ("uosc插件", "5.13.0"))
         self.assertEqual(uosc.source, GithubRelease(
             owner="tomasklaen", repo="uosc", version="5.13.0", filename_pattern="uosc", format="zip"))
-        self.assertIn("uosc", config.layout.placements)
+        self.assertIn("uosc", config.archive_layout.placements)
 
     def test_local_folder_and_archive_resolve_against_the_config_dir(self):
         (self.tmp / "pkgs" / "plugin").mkdir(parents=True)
@@ -74,8 +74,31 @@ class TestLoadPackageConfig(unittest.TestCase):
         self.assertEqual(config.dependencies["archive"].source,
                          LocalArchive(self.tmp.resolve() / "pkgs" / "plugin.zip"))
 
-    def test_enabled_is_rejected_with_a_pointer_to_the_adr(self):
-        self.assertRejected("ADR-0001", dependencies={"uosc": {**UOSC, "enabled": False}})
+    def test_dependencies_are_enabled_unless_they_say_otherwise(self):
+        mpv = {"name": "mpv", "version": "20261108", "url": "https://github.com/a/mpv/releases",
+               "filename_pattern": "mpv", "format": "7z", "install_to": ".", "entry": "mpv.exe"}
+
+        config = self.load(dependencies={"uosc": UOSC, "mpv": {**mpv, "enabled": False}})
+
+        self.assertTrue(config.dependencies["uosc"].enabled)
+        self.assertFalse(config.dependencies["mpv"].enabled)
+        self.assertEqual(list(config.enabled_dependencies), ["uosc"])
+        self.assertEqual(list(config.disabled_dependencies), ["mpv"])
+        self.assertEqual(list(config.archive_layout.placements), ["uosc"])
+        self.assertNotIn("mpv.exe", config.archive_layout.required_paths)
+
+    def test_disabled_dependencies_are_still_checked(self):
+        disabled = {**UOSC, "enabled": False}
+        cases = {
+            "enabled 必须是 true 或 false": {**UOSC, "enabled": "no"},
+            "local_path 不存在": {"name": "x", "version": "local", "enabled": False,
+                                  "local_path": "missing", "install_to": "."},
+            "install_to": without_install(disabled),
+            "sha256": {**disabled, "sha256": "x"},
+        }
+        for pattern, dep in cases.items():
+            with self.subTest(pattern=pattern):
+                self.assertRejected(pattern, dependencies={"dep": dep})
 
     def test_bad_dependency_entries_are_rejected(self):
         (self.tmp / "plugin").mkdir()

@@ -6,7 +6,7 @@
 
 - 🎯 **自动化管理**: 自动下载MPV播放器和插件
 - 🔧 **版本控制**: 通过配置文件管理所有组件版本
-- 🔌 **插件可配置**: 在 package_cfg.json 里增删依赖项
+- 🔌 **插件可配置**: 在 package_cfg.json 里增删或停用依赖项
 - 📦 **智能打包**: 自动创建便携式安装包
 - 🗜️ **多格式支持**: 支持7z、zip、rar等多种压缩格式
 - 🛠️ **自定义配置**: 支持自定义配置文件
@@ -117,26 +117,27 @@ pip install -r requirements.txt
       "version": "5.13.0"
     },
     "uosc_danmaku": {
-      "version": "v2.1.0"
+      "version": "v2.1.0",
+      "enabled": false
     }
   }
 }
 ```
 
-所有依赖都打进安装包，没有停用开关；下线插件要删掉整个依赖项（见 [ADR 0001](docs/adr/0001-entries-are-a-client-contract.md)）。
+依赖默认启用。写 `"enabled": false` 就停用：它照样在加载时校验，但不下载、不安装，`custom_config/<名>/` 也不装；它的入口文件不再是必需的，装过的托管文件进清单的 `obsolete`，客户端会删掉，用户的 `script-opts/<名>.conf` 保留。mpv 本体也能停用。停用前先确认基础配置（如 `input.conf` 里的 `script-binding uosc/menu`）和其它插件不依赖它，构建不检查这些引用。`--list` 会标出停用的依赖，`--deps` 指定停用的依赖会报错。
 
 ### 3. 基本使用
 
-一次完整运行会下载并安装所有依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
+一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
 
 ```bash
-# 处理所有依赖项
+# 处理所有启用的依赖项
 python run.py
 
 # 只处理指定的依赖项（空格分隔）。只装一部分依赖打不出完整的安装包，必须同时带 --skip-package 或 --skip-install
 python run.py --deps mpv uosc --skip-package
 
-# 检查 package_cfg.json 并列出所有依赖项及来源；配置不合法时退出码为 1
+# 检查 package_cfg.json 并列出所有依赖项及来源，标出停用的；配置不合法时退出码为 1
 python run.py --list
 
 # 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败。
@@ -291,17 +292,18 @@ python run.py --clean all       # 两者都删
 
 #### 核心配置参数
 
-每个依赖项在加载时校验，不合法就不构建；不认识的字段（包括已废弃的 `enabled`）也报错。下面的路径都相对安装包根目录，不能是绝对路径或含 `..`：
+每个依赖项在加载时校验，不合法就不构建；不认识的字段也报错。停用的依赖同样要校验通过。下面的路径都相对安装包根目录，不能是绝对路径或含 `..`：
 
 - `install_to`: 内容目录整个装到哪，如 mpv 的 `"."`、插件的 `"portable_config/scripts/<名>"`。和 `custom_install_rules` 必须且只能写一个，没有默认值
 - `custom_install_rules`: 自定义安装规则数组，按规则挑文件装
 - `exclude_files`: 排除文件数组，只能和 `install_to` 一起用；和 `custom_install_rules` 一起写会报错，排除要写进规则的 `exclude`
-- `entry`: 客户端离不开的入口文件（可选）。契约测试要求每个声明了 `entry` 的依赖都在安装包里，停用这个依赖就发不了版；要下线插件就删掉整个依赖项（见 [ADR 0001](docs/adr/0001-entries-are-a-client-contract.md)）
+- `entry`: 客户端离不开的入口文件（可选）。契约测试要求每个启用的依赖的 `entry` 都在安装包里；停用的依赖不要求
 - `managed_dir`: 客户端整体替换的目录（可选），必须在 `portable_config/` 下并包含 `entry`，写进清单的 `managedDirs`
 - `name`、`version`: 所有依赖必填的非空字符串；`name` 是显示名，写进 Release 说明
 - `url` 和 `local_path` 必须且只能写一个，决定依赖来源。`url` 必须是 `https://github.com/<owner>/<repo>/releases`，不能写本地路径
 - `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
-- `version` 也写进清单的 `components`
+- `enabled`: 是否打进安装包（可选），布尔值，默认 `true`
+- `version` 也写进清单的 `components`；停用的依赖不写
 
 #### 输出目录
 
@@ -486,7 +488,7 @@ custom_config/
 - 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
 - `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
 - 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
-- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：本次处理的依赖、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
+- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：本次处理的依赖、停用的依赖、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
 - 自动上传构建产物，保留 30 天
 
 ## 归档清单 fntv-manifest.json

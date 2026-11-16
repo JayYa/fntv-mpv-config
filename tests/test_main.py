@@ -52,13 +52,37 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn("plugin: 本地插件 local", out)
         self.assertIn("本地文件夹", out)
 
+    def test_list_marks_disabled_dependencies(self):
+        self.write_config({
+            "plugin": {"name": "本地插件", "version": "local", "local_path": "plugin",
+                       "install_to": "portable_config/scripts/plugin", "enabled": False},
+        })
+
+        code, out = self.run_main("--list")
+
+        self.assertEqual(code, 0)
+        self.assertIn("plugin: 本地插件 local", out)
+        self.assertIn("已停用", out)
+
     def test_list_fails_on_a_bad_config(self):
-        self.write_config({"uosc": {"enabled": True}})
+        self.write_config({"uosc": {"enabled": "yes"}})
 
         code, out = self.run_main("--list")
 
         self.assertEqual(code, 1)
-        self.assertIn("ADR-0001", out)
+        self.assertIn("enabled", out)
+
+    def test_naming_a_disabled_dependency_fails(self):
+        self.write_config({
+            "plugin": {"name": "本地插件", "version": "local", "local_path": "plugin",
+                       "install_to": "portable_config/scripts/plugin", "enabled": False},
+        })
+
+        code, out = self.run_main("--deps", "plugin", "nope", "--skip-package", "--skip-download")
+
+        self.assertEqual(code, 1)
+        self.assertIn("没有这些依赖项: nope", out)
+        self.assertIn("这些依赖项已停用: plugin", out)
 
     def test_clean_fails_on_a_bad_config(self):
         self.config_path.write_text("{", encoding="utf-8")

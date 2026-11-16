@@ -29,8 +29,12 @@ _Avoid_: 静音模式
 _Avoid_: 配置（单独使用时）, cfg
 
 **依赖（dependency）**:
-打进安装包的一个上游组件：mpv 本体或一个插件，来自 GitHub Release 或仓库内的本地包。所有依赖都打进安装包，没有停用状态（见 ADR-0001）。
+打包配置里列出的一个上游组件：mpv 本体或一个插件，来自 GitHub Release 或仓库内的本地包。默认启用，启用的依赖打进安装包。
 _Avoid_: 插件（指 mpv 本体时）, package
+
+**停用的依赖（disabled dependency）**:
+留在打包配置里、但不打进安装包的依赖。它的入口文件不再是必需的，它装过的托管文件成为过时文件。
+_Avoid_: 禁用插件, 删除的依赖
 
 **依赖来源（dependency source）**:
 一个依赖从哪来：GitHub Release、本地文件夹或本地压缩包，三者之一。

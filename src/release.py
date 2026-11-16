@@ -67,6 +67,7 @@ class BuildResult:
     project_dir: Path
     processed_dependencies: Tuple[Dependency, ...] = ()
     package: Optional[PackageArchive] = None
+    disabled_dependencies: Tuple[Dependency, ...] = ()
 
 
 def write_build_result(result: BuildResult, path: Path,
@@ -142,6 +143,8 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
         f"- 🔧 {name} ({version})" if version else f"- 🔧 {name}"
         for name, version in result.processed_dependencies
     )
+    if result.disabled_dependencies:
+        dependencies += "\n\n已停用：" +"、".join(name for name, _ in result.disabled_dependencies)
 
     template = Template(RELEASE_NOTES_TEMPLATE.read_text(encoding="utf-8"))
     return template.substitute(

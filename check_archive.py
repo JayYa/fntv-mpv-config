@@ -34,7 +34,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        layout = load_package_config(args.config).layout
+        layout = load_package_config(args.config).archive_layout
     except ConfigError as e:
         print(f"读取打包配置失败: {e}")
         return 1
