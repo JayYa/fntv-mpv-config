@@ -12,6 +12,7 @@ tests/
 ├── test_local_core.py   # 本地包功能核心测试
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
+├── test_package_archive.py # 安装包构建：已知哈希、打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
 ├── test_release.py      # 构建结果 JSON、Release 说明和 --result-file 参数
@@ -19,7 +20,7 @@ tests/
 
 测试都不访问网络，GitHub API 调用用 `unittest.mock` 替换。
 
-`test_manifest.py` 覆盖清单生成（`build_manifest`）、对 zip 的契约测试（`check_archive` 和根目录的 `check_archive.py`），以及用本地假插件跑完整打包流程后 zip 带清单、契约失败时打包失败。
+`test_manifest.py` 覆盖清单生成（`build_manifest`）、经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑的契约测试，以及两个跑完整 `run()` 的端到端测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 
 ### 测试模块详情
 
@@ -68,8 +69,6 @@ tests/
     - 测试从根目录复制
     - 测试多种文件类型过滤
     - 测试子目录结构保持
-- **TestCreatePackageName**: 安装包命名测试
-  - 传入时间戳时 zip 名为 `mpv-package-<时间戳>.zip`，不传时用当前北京时间，格式错误的时间戳被拒绝
 - **TestPackageTimestampCli**: `--package-timestamp` 参数的解析和校验
 - **TestRepositoryCustomConfig**: 用仓库里真实的 `custom_config` 测试
   - `custom_config/uosc_danmaku/` 下的文件装进 `portable_config/`
@@ -77,15 +76,19 @@ tests/
 
 #### 4. test_manifest.py - 归档清单测试
 - **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
-- **TestCheckArchive**: 对 zip 的每项契约检查、清单资产与 zip 内清单的比对，以及 `check_archive.py` 的退出码和 `--manifest-asset`
+- **TestCheckArchive**: 经 `contract_test` 做的每项契约检查、清单资产与 zip 内清单的比对，以及 `check_archive.py` 的退出码和 `--manifest-asset`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 用本地假插件跑完整打包流程；`run()` 返回的构建结果指向实际的安装包和清单，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 端到端，用本地假插件跑完整的 `run()`；返回的构建结果指向实际的安装包和清单，命令行 `--result-file` 写出构建结果和 Release 说明
 
-#### 5. test_package_defaults.py - 发版输入测试
+#### 5. test_package_archive.py - 安装包构建测试
+- **TestKnownHashes**: 合并历史哈希文件与上一版清单，默认读仓库里的 `manifest-history.json`
+- **TestBuildPackageArchive**: 时间戳决定归档版本、zip 名和清单资产位置；已知哈希进清单；契约测试失败抛 `ContractTestFailed`；默认用北京时间，格式错误的时间戳在写任何文件前被拒绝；`is_package_archive_name` 只认自己产出的 zip 名
+
+#### 6. test_package_defaults.py - 发版输入测试
 - **TestPackageDefaults**: 固定 `mpv`、`uosc`、`uosc_danmaku` 的版本和下载地址；`danmaku-history.json` 只含 `{"show_danmaku": true}`。升级依赖项时要同时改这里的期望值
 
-#### 6. test_skip_window.py - 跳过窗口测试
+#### 7. test_skip_window.py - 跳过窗口测试
 用 `lupa` 内嵌的 Lua 5.1 加载 `local_packages/smart_skip/skip_window.lua`，不需要装 Lua 或 mpv。
 - **TestManualWindows**: 服务器的片头/片尾时长换成区间，片尾超过一半、片头与片尾重叠、时长未知时丢弃
 - **TestChapterWindows** / **TestAutoWindows**: 章节检测；自动模式每段先取章节，没有再取时长；已删除的静音模式按自动模式处理

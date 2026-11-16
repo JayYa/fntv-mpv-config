@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from src.package_archive import PackageArchive
 from src.release import (FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, render_release_notes,
                          write_build_result)
