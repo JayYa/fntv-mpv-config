@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .dependency_layout import DependencyLayout
 from .manifest import (MANIFEST_NAME, PORTABLE_CONFIG, KnownHashes, build_manifest,
                        check_archive, check_manifest_asset, write_manifest)
 
@@ -68,6 +69,7 @@ def remove_package_archives(output_dir: Path) -> List[Path]:
 
 
 def build_package_archive(project_dir: Path, components: Dict[str, str], known: KnownHashes,
+                          layout: DependencyLayout,
                           timestamp: Optional[str] = None) -> PackageArchive:
     """
     给 project 目录生成清单、打成安装包，并跑契约测试
@@ -79,6 +81,7 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
         project_dir: 含 mpv.exe 和 portable_config 的目录
         components: 清单的 components，依赖项名 -> 版本
         known: 已知哈希
+        layout: 依赖布局，给出清单的托管目录和契约测试要求的文件
         timestamp: 构建时间戳（yyyyMMdd_HHmmss），None 时用当前北京时间
 
     Raises:
@@ -92,7 +95,8 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
     project_dir = Path(project_dir).resolve()
     archive_version = f"fntv-mpv-v{timestamp}"
 
-    manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, known)
+    manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, known,
+                              managed_dirs=layout.managed_dirs)
     write_manifest(project_dir, manifest)
     zip_path = project_dir.parent / f"{PACKAGE_ARCHIVE_PREFIX}{timestamp}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
@@ -101,7 +105,7 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
                 z.write(file_path, file_path.relative_to(project_dir).as_posix())
     asset_path = write_manifest(project_dir.parent, manifest)
 
-    errors = contract_test(zip_path, known, archive_version=archive_version,
+    errors = contract_test(zip_path, known, layout, archive_version=archive_version,
                            manifest_asset=asset_path)
     if errors:
         raise ContractTestFailed(errors)
@@ -109,7 +113,8 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
                           archive_version=archive_version, timestamp=timestamp)
 
 
-def contract_test(zip_path: Path, known: KnownHashes, archive_version: Optional[str] = None,
+def contract_test(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
+                  archive_version: Optional[str] = None,
                   manifest_asset: Optional[Path] = None) -> List[str]:
     """
     契约测试：安装包与其中的清单一致、满足客户端依赖、已知哈希只增不减
@@ -117,13 +122,16 @@ def contract_test(zip_path: Path, known: KnownHashes, archive_version: Optional[
     Args:
         zip_path: 安装包路径
         known: 已知哈希
+        layout: 依赖布局，给出必须有的入口文件、基础配置和托管目录
         archive_version: 期望的归档版本（本次 Release tag），None 时不检查
         manifest_asset: Release 单独上传的清单资产，必须与 zip 里的逐字节相同；None 时不检查
 
     Returns:
         错误列表，空列表表示通过
     """
-    errors = check_archive(Path(zip_path), archive_version=archive_version, known=known)
+    errors = check_archive(Path(zip_path), required_paths=layout.required_paths,
+                           managed_dirs=layout.managed_dirs,
+                           archive_version=archive_version, known=known)
     if manifest_asset is not None:
         errors += check_manifest_asset(Path(zip_path), Path(manifest_asset))
     return errors

@@ -32,6 +32,22 @@ _Avoid_: 插件（指 mpv 本体时）, package
 一个依赖交给安装步骤的目录：压缩包解压后去掉单一外层根目录，本地文件夹则是它本身。
 _Avoid_: 解压目录, extracted
 
+**依赖布局（dependency layout）**:
+各依赖在安装包里的位置：内容目录装到哪、入口文件是什么、哪个目录由客户端整体替换，外加与依赖无关的基础配置。
+_Avoid_: 安装规则（单独指布局时）, 目录结构
+
+**入口文件（entry）**:
+一个依赖必须出现在安装包里的那个文件，例如 mpv 的 `mpv.exe`、uosc 的 `scripts/uosc/main.lua`；缺了它客户端就不能用这个依赖。
+_Avoid_: 主文件, 必需文件
+
+**托管目录（managed dir）**:
+客户端整体替换的目录：更新时先删掉旧目录再放新的，用户放进去的文件不保留。
+_Avoid_: 插件目录, 托管路径
+
+**基础配置（base config）**:
+不属于任何依赖、每次构建都装进 portable_config 的配置，如 mpv.conf、input.conf、fntv/defaults.conf 和着色器。
+_Avoid_: mpv 配置（指这组文件时）, 默认配置
+
 **安装包（package archive）**:
 一次构建产出、发布给客户端下载的 zip，内含 mpv 和 portable_config。
 _Avoid_: 产物, artifact, 归档

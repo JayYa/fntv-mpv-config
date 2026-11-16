@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .config_manager import ConfigManager
+from .dependency_layout import load_layout
 from .dependency_source import DependencySource
 from .install_manager import InstallManager
 from .log_manager import LogManager
@@ -70,6 +71,7 @@ class MPVConfigManager:
             config = self.config_manager.load_config()
             self.logger.info(f"配置加载完成: {config['name']} v{config['version']}")
 
+            layout = load_layout(config['dependencies'], self.config_manager.get_custom_config_dir())
             source = self._dependency_source(offline=skip_download)
             installer = self._installer()
 
@@ -78,11 +80,12 @@ class MPVConfigManager:
 
             if not skip_install:
                 installer.reset_project_dir()
+                installer.install_base_config(layout)
             for dep_name, dep_config in target_dependencies.items():
                 try:
                     content_dir = source.fetch(dep_name, dep_config)
                     if not skip_install:
-                        installer.install_dependency(dep_name, dep_config, content_dir)
+                        installer.install_dependency(layout.placements[dep_name], content_dir)
                 except Exception as e:
                     self.logger.error(f"处理依赖项 {dep_name} 失败: {e}")
                     return None
@@ -102,7 +105,7 @@ class MPVConfigManager:
                     self.logger.info(f"并入上一版清单: {previous_manifest_path}")
                 try:
                     package = build_package_archive(installer.output_dir,
-                                                    self._get_components(), known,
+                                                    self._get_components(), known, layout,
                                                     timestamp=package_timestamp)
                 except ContractTestFailed as e:
                     for error in e.errors:
@@ -133,7 +136,6 @@ class MPVConfigManager:
 
     def _installer(self) -> InstallManager:
         return InstallManager(self.config_manager.get_output_dir(),
-                              self.config_manager.get_custom_config_dir(),
                               self.config_manager.get_project_name())
 
     def _get_target_dependencies(self, dependencies: Optional[List[str]]) -> dict:

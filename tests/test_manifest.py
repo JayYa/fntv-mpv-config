@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.dependency_layout import load_layout
 from src.manifest import ManifestError, build_manifest, history_from_archives, load_history
 from src.package_archive import KnownHashes, contract_test
 
@@ -52,14 +53,14 @@ class TestBuildManifest(unittest.TestCase):
             self.portable,
             archive_version="fntv-mpv-v20261114_235959",
             components={"uosc": "5.13.0", "smart_skip": "local"},
+            managed_dirs=["scripts/uosc", "scripts/smart_skip"],
         )
 
         self.assertEqual(manifest["formatVersion"], 1)
         self.assertEqual(manifest["archiveVersion"], "fntv-mpv-v20261114_235959")
         self.assertEqual(manifest["components"], {"uosc": "5.13.0", "smart_skip": "local"})
         self.assertEqual(manifest["provides"], {"smart-skip.origin-from-play-url": 1})
-        for d in ("scripts/uosc", "scripts/uosc_danmaku", "scripts/smart_skip"):
-            self.assertIn(d, manifest["managedDirs"])
+        self.assertEqual(manifest["managedDirs"], ["scripts/uosc", "scripts/smart_skip"])
         self.assertEqual(manifest["obsolete"], [])
 
         files = {f["path"]: f for f in manifest["files"]}
@@ -109,6 +110,20 @@ VALID_PORTABLE_CONFIG = {
 
 ARCHIVE_VERSION = "fntv-mpv-v20261114_235959"
 
+# 和仓库 package_cfg.json 一样的入口文件和托管目录；没有 custom_config
+CLIENT_LAYOUT = load_layout({
+    "mpv": {"install_to": ".", "entry": "mpv.exe"},
+    "uosc": {"custom_install_rules": [], "entry": "portable_config/scripts/uosc/main.lua",
+             "managed_dir": "portable_config/scripts/uosc"},
+    "uosc_danmaku": {"install_to": "portable_config/scripts/uosc_danmaku",
+                     "entry": "portable_config/scripts/uosc_danmaku/main.lua",
+                     "managed_dir": "portable_config/scripts/uosc_danmaku"},
+    "smart_skip": {"install_to": "portable_config/scripts/smart_skip",
+                   "entry": "portable_config/scripts/smart_skip/main.lua",
+                   "managed_dir": "portable_config/scripts/smart_skip"},
+    "thumbfast": {"custom_install_rules": [], "entry": "portable_config/scripts/thumbfast.lua"},
+}, Path(__file__).parent / "no-custom-config")
+
 
 class TestCheckArchive(unittest.TestCase):
     """契约测试：对打包产出的 zip 检查清单"""
@@ -120,19 +135,21 @@ class TestCheckArchive(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def make_zip(self, portable_files=None, edit_manifest=None, extra_zip_files=None,
-                 include_manifest=True):
+                 include_manifest=True, include_mpv=True):
         """按 portable_files 生成清单，可选地改清单或往 zip 里多塞文件，返回 zip 路径"""
         portable_files = VALID_PORTABLE_CONFIG if portable_files is None else portable_files
         root = self.tmp / "build"
         shutil.rmtree(root, ignore_errors=True)
         write_portable_config(root / "portable_config", portable_files)
-        manifest = build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"})
+        manifest = build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"},
+                                  managed_dirs=CLIENT_LAYOUT.managed_dirs)
         if edit_manifest:
             edit_manifest(manifest)
         if include_manifest:
             (root / "fntv-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         write_portable_config(root, extra_zip_files or {})
-        (root / "mpv.exe").write_bytes(b"MZ")
+        if include_mpv:
+            (root / "mpv.exe").write_bytes(b"MZ")
         zip_path = self.tmp / "mpv-package-20261114_235959.zip"
         with zipfile.ZipFile(zip_path, "w") as z:
             for f in root.rglob("*"):
@@ -141,7 +158,7 @@ class TestCheckArchive(unittest.TestCase):
         return zip_path
 
     def assertFailsWith(self, zip_path, fragment, **kwargs):
-        errors = contract_test(zip_path, KnownHashes(), **kwargs)
+        errors = contract_test(zip_path, KnownHashes(), CLIENT_LAYOUT, **kwargs)
         self.assertTrue(
             any(fragment in e for e in errors),
             f"期望有包含 {fragment!r} 的错误，实际: {errors}",
@@ -198,7 +215,7 @@ class TestCheckArchive(unittest.TestCase):
         asset = self.tmp / "fntv-manifest.json"
         with zipfile.ZipFile(zip_path) as z:
             asset.write_bytes(z.read("fntv-manifest.json"))
-        self.assertEqual(contract_test(zip_path, KnownHashes(), manifest_asset=asset), [])
+        self.assertEqual(contract_test(zip_path, KnownHashes(), CLIENT_LAYOUT, manifest_asset=asset), [])
 
         asset.write_bytes(asset.read_bytes() + b"\n")
         self.assertFailsWith(zip_path, "不同", manifest_asset=asset)
@@ -207,7 +224,7 @@ class TestCheckArchive(unittest.TestCase):
     def test_consistent_archive_passes(self):
         zip_path = self.make_zip()
 
-        self.assertEqual(contract_test(zip_path, KnownHashes(), archive_version=ARCHIVE_VERSION), [])
+        self.assertEqual(contract_test(zip_path, KnownHashes(), CLIENT_LAYOUT, archive_version=ARCHIVE_VERSION), [])
 
     def test_missing_manifest_fails(self):
         self.assertFailsWith(self.make_zip(include_manifest=False), "fntv-manifest.json")
@@ -258,6 +275,27 @@ class TestCheckArchive(unittest.TestCase):
 
         self.assertFailsWith(self.make_zip(portable_files=files), "scripts/smart_skip/main.lua")
 
+    def test_mpv_must_sit_at_the_archive_root(self):
+        self.assertFailsWith(self.make_zip(include_mpv=False), "mpv.exe")
+
+    def test_command_line_reads_entries_from_the_given_config(self):
+        config = self.tmp / "package_cfg.json"
+        config.write_text(json.dumps({
+            "name": "x", "version": "1", "config": {"custom_config_dir": str(self.tmp / "none")},
+            "dependencies": {"extra": {"install_to": ".", "entry": "extra.exe"}},
+        }), encoding="utf-8")
+        empty_history = self.tmp / "empty-history.json"
+        empty_history.write_text('{"archives": [], "files": {}}', encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "check_archive.py"), str(self.make_zip()),
+             "--history", str(empty_history), "--config", str(config)],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("extra.exe", result.stdout)
+
     def test_provides_keys_must_be_complete(self):
         def drop_provides(m):
             m["provides"] = {}
@@ -287,7 +325,7 @@ class TestCheckArchive(unittest.TestCase):
         files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
         if defaults is not None:
             files["fntv/defaults.conf"] = defaults
-        errors = contract_test(self.make_zip(portable_files=files), KnownHashes())
+        errors = contract_test(self.make_zip(portable_files=files), KnownHashes(), CLIENT_LAYOUT)
         self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
 
     def test_mpv_conf_layering_is_checked(self):
@@ -308,7 +346,7 @@ class TestCheckArchive(unittest.TestCase):
 class TestShippedMpvConf(unittest.TestCase):
     """仓库里的 mpv.conf 分层：设置都搬进 fntv/defaults.conf，薄 mpv.conf 只引用它"""
 
-    MPV_DIR = Path(__file__).parent.parent / "custom_config" / "mpv"
+    BASE_CONFIG_DIR = Path(__file__).parent.parent / "custom_config" / "base"
 
     @staticmethod
     def effective_lines(path):
@@ -321,7 +359,7 @@ class TestShippedMpvConf(unittest.TestCase):
 
     def test_defaults_carry_the_original_settings(self):
         # 原 mpv.conf（44d2c9b）里的全部设置，顺序不变
-        self.assertEqual(self.effective_lines(self.MPV_DIR / "fntv" / "defaults.conf"), [
+        self.assertEqual(self.effective_lines(self.BASE_CONFIG_DIR / "fntv" / "defaults.conf"), [
             "[fntv-defaults]",
             "border=no",
             "cache-secs=120",
@@ -338,7 +376,7 @@ class TestShippedMpvConf(unittest.TestCase):
         ])
 
     def test_thin_mpv_conf_only_pulls_in_defaults(self):
-        self.assertEqual(self.effective_lines(self.MPV_DIR / "mpv.conf"), [
+        self.assertEqual(self.effective_lines(self.BASE_CONFIG_DIR / "mpv.conf"), [
             'include="~~/fntv/defaults.conf"',
             "profile=fntv-defaults",
         ])
@@ -421,7 +459,8 @@ class TestHistory(unittest.TestCase):
 
         def build_with_history(m):
             m.update(build_manifest(self.tmp / "build" / "portable_config", ARCHIVE_VERSION,
-                                    {"uosc": "5.13.0"}, known=known))
+                                    {"uosc": "5.13.0"}, known=known,
+                                    managed_dirs=CLIENT_LAYOUT.managed_dirs))
 
         def drop_file_hash(m):
             build_with_history(m)
@@ -433,12 +472,12 @@ class TestHistory(unittest.TestCase):
             m["obsolete"] = []
 
         intact = checker.make_zip(edit_manifest=build_with_history)
-        self.assertEqual(contract_test(intact, known), [])
+        self.assertEqual(contract_test(intact, known, CLIENT_LAYOUT), [])
 
-        errors = contract_test(checker.make_zip(edit_manifest=drop_file_hash), known)
+        errors = contract_test(checker.make_zip(edit_manifest=drop_file_hash), known, CLIENT_LAYOUT)
         self.assertTrue(any("input.conf" in e and SHA256_ABC in e for e in errors), errors)
 
-        errors = contract_test(checker.make_zip(edit_manifest=drop_obsolete_hash), known)
+        errors = contract_test(checker.make_zip(edit_manifest=drop_obsolete_hash), known, CLIENT_LAYOUT)
         self.assertTrue(any("scripts/removed.lua" in e for e in errors), errors)
 
     def test_contract_checks_previous_manifest_hashes_too(self):
@@ -447,7 +486,7 @@ class TestHistory(unittest.TestCase):
         previous = {"files": [{"path": "input.conf", "sha256": SHA256_GHI, "role": "config",
                                "knownHashes": [SHA256_GHI]}], "obsolete": []}
 
-        errors = contract_test(checker.make_zip(), KnownHashes.merge(previous_manifest=previous))
+        errors = contract_test(checker.make_zip(), KnownHashes.merge(previous_manifest=previous), CLIENT_LAYOUT)
 
         self.assertTrue(any("input.conf" in e and SHA256_GHI in e for e in errors), errors)
 
@@ -483,15 +522,22 @@ class TestPackagingProducesManifest(unittest.TestCase):
         })
         write_portable_config(pkgs / "uosc_danmaku", {"main.lua": b"-- danmaku"})
         write_portable_config(pkgs / "thumbfast", {"thumbfast.lua": b"-- thumbfast"})
+        write_portable_config(pkgs / "mpv", {"mpv.exe": b"MZ", "doc/manual.pdf": b"pdf"})
         write_portable_config(self.tmp / "custom", {
             "uosc_danmaku/danmaku-history.json": b'{"show_danmaku": true}',
             "uosc/script-opts/uosc.conf": b"",
-            "uosc/mpv.conf": THIN_MPV_CONF,
-            "uosc/fntv/defaults.conf": b"[fntv-defaults]\nvo=gpu-next\n",
+            "base/mpv.conf": THIN_MPV_CONF,
+            "base/fntv/defaults.conf": b"[fntv-defaults]\nvo=gpu-next\n",
         })
         self.dependencies = {
+            "mpv": {
+                "name": "mpv", "version": "20261108", "local_path": str(pkgs / "mpv"),
+                "install_to": ".", "entry": "mpv.exe", "exclude_files": ["doc/*"],
+            },
             "uosc": {
                 "name": "uosc", "version": "5.13.0", "local_path": str(pkgs / "uosc"),
+                "entry": "portable_config/scripts/uosc/main.lua",
+                "managed_dir": "portable_config/scripts/uosc",
                 "custom_install_rules": [
                     {"from": "scripts", "to": "portable_config/scripts", "filter": ["**/*"]},
                     {"from": "fonts", "to": "portable_config/fonts", "filter": ["**/*"]},
@@ -500,13 +546,20 @@ class TestPackagingProducesManifest(unittest.TestCase):
             "uosc_danmaku": {
                 "name": "uosc_danmaku", "version": "v2.1.0",
                 "local_path": str(pkgs / "uosc_danmaku"),
+                "install_to": "portable_config/scripts/uosc_danmaku",
+                "entry": "portable_config/scripts/uosc_danmaku/main.lua",
+                "managed_dir": "portable_config/scripts/uosc_danmaku",
             },
             "smart_skip": {
                 "name": "smart_skip", "version": "local",
                 "local_path": str(PROJECT_ROOT / "local_packages" / "smart_skip"),
+                "install_to": "portable_config/scripts/smart_skip",
+                "entry": "portable_config/scripts/smart_skip/main.lua",
+                "managed_dir": "portable_config/scripts/smart_skip",
             },
             "thumbfast": {
                 "name": "thumbfast", "version": "local", "local_path": str(pkgs / "thumbfast"),
+                "entry": "portable_config/scripts/thumbfast.lua",
                 "custom_install_rules": [
                     {"from": "", "to": "portable_config/scripts", "filter": ["thumbfast.lua"]},
                 ],
@@ -554,15 +607,22 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.assertEqual(result.output_dir, (self.tmp / "out").resolve())
         self.assertTrue((result.project_dir / "portable_config").is_dir())
         self.assertEqual(result.processed_dependencies, (
-            ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
+            ("mpv", "20261108"), ("uosc", "5.13.0"), ("uosc_danmaku", "v2.1.0"),
             ("smart_skip", "local"), ("thumbfast", "local"),
         ))
         with zipfile.ZipFile(zip_path) as z:
             manifest = json.loads(z.read("fntv-manifest.json"))
+            names = set(z.namelist())
         self.assertEqual(manifest["components"], {
-            "uosc": "5.13.0", "uosc_danmaku": "v2.1.0",
+            "mpv": "20261108", "uosc": "5.13.0", "uosc_danmaku": "v2.1.0",
             "smart_skip": "local", "thumbfast": "local",
         })
+        self.assertEqual(manifest["managedDirs"],
+                         ["scripts/uosc", "scripts/uosc_danmaku", "scripts/smart_skip"])
+        self.assertIn("mpv.exe", names)
+        self.assertNotIn("doc/manual.pdf", names)
+        self.assertIn("portable_config/mpv.conf", names)
+        self.assertIn("portable_config/fntv/defaults.conf", names)
 
     def test_leftovers_from_an_earlier_build_stay_out_of_the_archive(self):
         project_name = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]

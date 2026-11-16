@@ -10,7 +10,7 @@ import json
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Mapping, Optional, Set, Tuple
+from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
 
 MANIFEST_NAME = "fntv-manifest.json"
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
@@ -31,9 +31,6 @@ ROLE_RULES = [
     ("danmaku-history.json", "seed"),
 ]
 
-# 整目录托管、客户端整体替换的目录
-MANAGED_DIRS = ["scripts/uosc", "scripts/uosc_danmaku", "scripts/smart_skip"]
-
 # 归档提供给客户端的能力：能力名 -> 版本
 PROVIDES = {
     # smart_skip 从播放地址取 Proxy 的 scheme、主机和端口（a5e1137 起）
@@ -52,16 +49,6 @@ PROVIDES = {
 DEFAULTS_CONF = "fntv/defaults.conf"
 DEFAULTS_PROFILE = "fntv-defaults"
 INCLUDE_LINE = 'include="~~/fntv/defaults.conf"'
-
-# 客户端依赖的路径（相对 portable_config）：各托管插件的入口脚本和分层的 mpv 配置
-REQUIRED_PATHS = [
-    "scripts/uosc/main.lua",
-    "scripts/uosc_danmaku/main.lua",
-    "scripts/smart_skip/main.lua",
-    "scripts/thumbfast.lua",
-    "mpv.conf",
-    DEFAULTS_CONF,
-]
 
 
 class ManifestError(Exception):
@@ -182,12 +169,14 @@ class KnownHashes:
 
 
 def build_manifest(portable_config_dir: Path, archive_version: str,
-                   components: Dict[str, str], known: Optional[KnownHashes] = None) -> dict:
+                   components: Dict[str, str], known: Optional[KnownHashes] = None,
+                   managed_dirs: Sequence[str] = ()) -> dict:
     """
     扫描 portable_config 目录生成清单
 
     Args:
         known: 已知哈希，并进 knownHashes 和 obsolete；None 时视为没有历史
+        managed_dirs: 清单的 managedDirs，客户端整体替换的目录（相对 portable_config）
 
     Raises:
         ManifestError: 有文件没有归属
@@ -224,7 +213,7 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
         "archiveVersion": archive_version,
         "components": dict(components),
         "provides": dict(PROVIDES),
-        "managedDirs": list(MANAGED_DIRS),
+        "managedDirs": list(managed_dirs),
         "files": files,
         "obsolete": obsolete,
     }
@@ -268,13 +257,16 @@ def check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]:
     return errors
 
 
-def check_archive(zip_path: Path, archive_version: Optional[str] = None,
+def check_archive(zip_path: Path, *, required_paths: Sequence[str], managed_dirs: Sequence[str],
+                  archive_version: Optional[str] = None,
                   known: Optional[KnownHashes] = None) -> List[str]:
     """
     检查打包产出的 zip 和其中的清单是否一致、是否满足客户端依赖
 
     Args:
         zip_path: 安装包路径
+        required_paths: zip 里必须有的文件（相对安装包根目录）
+        managed_dirs: 清单的 managedDirs 至少要有的目录
         archive_version: 期望的 archiveVersion（本次 Release tag），None 时不检查
         known: 已知哈希；其中每个哈希都必须还在清单里（只增不减），None 时视为没有历史
 
@@ -321,9 +313,9 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
         if not isinstance(provides.get(key), int) or provides[key] < version:
             errors.append(f"provides 缺少 {key}（至少版本 {version}）")
 
-    managed_dirs = manifest.get("managedDirs") or []
-    for d in MANAGED_DIRS:
-        if d not in managed_dirs:
+    manifest_managed_dirs = manifest.get("managedDirs") or []
+    for d in managed_dirs:
+        if d not in manifest_managed_dirs:
             errors.append(f"managedDirs 缺少 {d}")
 
     seen = set()
@@ -349,9 +341,9 @@ def check_archive(zip_path: Path, archive_version: Optional[str] = None,
     for path in sorted(set(zip_hashes) - seen):
         errors.append(f"zip 里的 {PORTABLE_CONFIG}/{path} 没有出现在清单里")
 
-    for path in REQUIRED_PATHS:
-        if path not in zip_hashes:
-            errors.append(f"缺少客户端依赖的路径 {PORTABLE_CONFIG}/{path}")
+    for path in required_paths:
+        if path not in names:
+            errors.append(f"缺少客户端依赖的路径 {path}")
 
     obsolete_entries = manifest.get("obsolete")
     if not isinstance(obsolete_entries, list):

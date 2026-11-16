@@ -13,7 +13,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from src.config_manager import ConfigError, ConfigManager  # noqa: E402
+from src.dependency_layout import LayoutError, load_layout  # noqa: E402
 from src.package_archive import KnownHashes, contract_test  # noqa: E402
+
+DEFAULT_CONFIG = Path(__file__).parent / "package_cfg.json"
 
 
 def main() -> int:
@@ -26,10 +30,18 @@ def main() -> int:
                         help="上一版 Release 的 fntv-manifest.json；它的哈希也必须都还在")
     parser.add_argument("--manifest-asset",
                         help="Release 要单独上传的 fntv-manifest.json；必须存在且与 zip 里的相同")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG),
+                        help="读取依赖布局的配置文件（默认: 仓库根目录的 package_cfg.json）")
     args = parser.parse_args()
 
+    try:
+        config = ConfigManager(args.config)
+        layout = load_layout(config.get_config()["dependencies"], config.get_custom_config_dir())
+    except (ConfigError, LayoutError) as e:
+        print(f"读取依赖布局失败: {e}")
+        return 1
     errors = contract_test(Path(args.zip_path), KnownHashes.load(args.history, args.previous_manifest),
-                           archive_version=args.archive_version,
+                           layout, archive_version=args.archive_version,
                            manifest_asset=args.manifest_asset)
     if errors:
         print(f"契约测试失败（{len(errors)} 项）:")

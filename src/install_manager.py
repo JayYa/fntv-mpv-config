@@ -4,21 +4,22 @@
 """
 import shutil
 import fnmatch
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Iterable, List, Optional
 from pathlib import Path
 import logging
+
+from .dependency_layout import ConfigFile, DependencyLayout, Placement
 
 
 class InstallManager:
     """安装管理器"""
     
-    def __init__(self, output_dir: Path, custom_config_dir: Path, project_name: str):
+    def __init__(self, output_dir: Path, project_name: str):
         """
         初始化安装管理器
-        
+
         Args:
             output_dir: 输出目录
-            custom_config_dir: 自定义配置目录
             project_name: 项目名称，即 project 目录在输出目录下的名字
 
         Raises:
@@ -28,7 +29,6 @@ class InstallManager:
             raise ValueError(f"项目名称必须是单独一级目录名: {project_name!r}")
         self.base_output_dir = Path(output_dir)
         self.output_dir = self.base_output_dir / project_name
-        self.custom_config_dir = Path(custom_config_dir)
         self.project_name = project_name
         self.logger = logging.getLogger(__name__)
         self.portable_config_dir = self.output_dir / "portable_config"
@@ -44,46 +44,33 @@ class InstallManager:
         self.remove_project_dir()
         self.portable_config_dir.mkdir(parents=True)
 
-    def install_dependency(self, name: str, config: Dict[str, Any], content_dir: Path):
+    def install_base_config(self, layout: DependencyLayout):
+        """把基础配置装进 portable_config"""
+        self._install_config_files(layout.base_config)
+
+    def install_dependency(self, placement: Placement, content_dir: Path):
         """
-        把依赖的内容目录按规则装进 project 目录，再装 custom_config 下的同名配置
+        按依赖布局把依赖的内容目录装进 project 目录，再装它在 custom_config 下的配置
 
         Args:
-            name: 依赖项名称
-            config: 依赖项配置
+            placement: 这个依赖在依赖布局里的位置
             content_dir: 依赖的内容目录
         """
+        name = placement.name
         self.logger.info(f"开始安装 {name}")
 
-        custom_install_rules = config.get('custom_install_rules', [])
-        if custom_install_rules:
+        if placement.install_to is not None:
+            target_path = self.output_dir / placement.install_to
+            self.logger.info(f"安装 {name}: {content_dir} -> {target_path}")
+            target_path.mkdir(parents=True, exist_ok=True)
+            self._copy_filtered_files(content_dir, target_path, "**/*", list(placement.excludes))
+        else:
             self.logger.info(f"{name} 使用自定义安装规则")
-            for rule in custom_install_rules:
+            for rule in placement.install_rules:
                 self._apply_custom_config_rule(name, rule, content_dir)
-        else:
-            self._install_content_default(name, content_dir, config.get('exclude_files', []))
 
-        self._install_custom_config(name)
+        self._install_config_files(placement.custom_config)
         self.logger.info(f"{name} 安装完成")
-    
-    def _install_content_default(self, name: str, content_dir: Path, excludes: List[str]):
-        # 根据依赖项类型决定默认安装位置
-        if name == 'mpv':
-            # MPV主程序安装到根目录
-            target_path = self.output_dir
-        else:
-            # 其他插件默认安装到scripts目录下的子目录
-            target_path = self.portable_config_dir / "scripts" / name
-        
-        self.logger.info(f"默认安装 {name}: {content_dir} -> {target_path}")
-        if excludes:
-            self.logger.debug(f"排除文件: {excludes}")
-        
-        # 创建目标目录
-        target_path.mkdir(parents=True, exist_ok=True)
-        
-        # 复制所有文件，但排除指定模式
-        self._copy_filtered_files(content_dir, target_path, "**/*", excludes)
     
     def _apply_custom_config_rule(self, name: str, rule: Dict[str, Any], source_base: Path):
         """
@@ -269,27 +256,6 @@ class InstallManager:
             self.logger.error(f"复制文件失败: {source} -> {target}, 错误: {e}")
             raise
     
-    def _install_custom_config(self, name: str):
-        """
-        安装自定义配置文件
-        
-        Args:
-            name: 依赖项名称
-        """
-        # 检查通用自定义配置目录
-        custom_dir = self.custom_config_dir / name
-        
-        if custom_dir.exists():
-            self.logger.info(f"安装 {name} 的自定义配置")
-            
-            try:
-                # 递归复制自定义配置到portable_config
-                for item in custom_dir.rglob('*'):
-                    if item.is_file():
-                        rel_path = item.relative_to(custom_dir)
-                        target_file = self.portable_config_dir / rel_path
-                        self._copy_file(item, target_file)
-            
-            except Exception as e:
-                self.logger.error(f"安装 {name} 自定义配置失败: {e}")
-                raise
+    def _install_config_files(self, files: Iterable[ConfigFile]):
+        for source, dest in files:
+            self._copy_file(source, self.portable_config_dir / dest)

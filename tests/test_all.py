@@ -9,7 +9,8 @@ from pathlib import Path
 import sys
 import os
 
-# 添加src目录到Python路径
+# 仓库根目录给 src.* 导入，src 目录给其余模块的裸导入
+sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from unittest import mock
@@ -17,7 +18,7 @@ from unittest import mock
 from config_manager import ConfigManager, ConfigError, OUTPUT_DIR_ENV
 from download_manager import DownloadManager
 from extract_manager import ExtractManager
-from install_manager import InstallManager
+from src.install_manager import InstallManager
 
 
 class TestConfigManager(unittest.TestCase):
@@ -175,7 +176,7 @@ class TestInstallManager(unittest.TestCase):
         self.custom_config_dir = Path(self.temp_dir) / "custom_config"
         
         # 添加project_name参数
-        self.manager = InstallManager(self.output_dir, self.custom_config_dir, "test-project")
+        self.manager = InstallManager(self.output_dir, "test-project")
     
     def test_matches_pattern(self):
         """测试模式匹配"""
