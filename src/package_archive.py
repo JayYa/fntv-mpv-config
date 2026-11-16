@@ -6,12 +6,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .manifest import (PORTABLE_CONFIG, KnownHashes, build_manifest, check_archive,
-                       check_manifest_asset, write_manifest)
+from .manifest import (MANIFEST_NAME, PORTABLE_CONFIG, KnownHashes, build_manifest,
+                       check_archive, check_manifest_asset, write_manifest)
 
 __all__ = [
     "ContractTestFailed", "KnownHashes", "PackageArchive", "build_package_archive",
-    "contract_test", "is_package_archive_name", "validate_package_timestamp",
+    "contract_test", "is_package_archive_name", "remove_package_archives",
+    "validate_package_timestamp",
 ]
 
 TIMESTAMP_REGEX = r"\d{8}_\d{6}"
@@ -54,6 +55,16 @@ def validate_package_timestamp(timestamp: str) -> str:
 def is_package_archive_name(name: str) -> bool:
     """文件名是不是 build_package_archive 产出的安装包"""
     return PACKAGE_ARCHIVE_NAME.fullmatch(name) is not None
+
+
+def remove_package_archives(output_dir: Path) -> List[Path]:
+    """删掉输出目录里 build_package_archive 产出的安装包和清单资产，返回删掉的文件"""
+    removed = []
+    for item in sorted(Path(output_dir).iterdir()):
+        if item.is_file() and (is_package_archive_name(item.name) or item.name == MANIFEST_NAME):
+            item.unlink()
+            removed.append(item)
+    return removed
 
 
 def build_package_archive(project_dir: Path, components: Dict[str, str], known: KnownHashes,

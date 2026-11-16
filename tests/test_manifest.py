@@ -564,6 +564,19 @@ class TestPackagingProducesManifest(unittest.TestCase):
             "smart_skip": "local", "thumbfast": "local",
         })
 
+    def test_leftovers_from_an_earlier_build_stay_out_of_the_archive(self):
+        project_name = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]
+        stale = self.tmp / "out" / project_name / "portable_config" / "scripts" / "uosc" / "removed.lua"
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b"-- removed upstream")
+
+        result, zip_path = self.run_packaging()
+
+        self.assertIsNotNone(result)
+        self.assertFalse(stale.exists())
+        with zipfile.ZipFile(zip_path) as z:
+            self.assertNotIn("portable_config/scripts/uosc/removed.lua", z.namelist())
+
     def test_command_line_writes_the_build_result(self):
         from unittest import mock
         from src.main import main

@@ -121,27 +121,7 @@ class TestDownloadManager(unittest.TestCase):
     """下载管理器测试"""
     
     def setUp(self):
-        """设置测试环境"""
-        self.temp_dir = tempfile.mkdtemp()
-        self.manager = DownloadManager(Path(self.temp_dir))
-    
-    def test_init(self):
-        """测试下载管理器初始化"""
-        self.assertEqual(self.manager.temp_dir, Path(self.temp_dir))
-        self.assertTrue(self.manager.temp_dir.exists())
-    
-    def test_parse_github_url(self):
-        """测试GitHub URL解析"""
-        url = "https://github.com/tomasklaen/uosc/releases"
-        # 这里可以测试URL解析逻辑，而不是实际的网络请求
-        self.assertIn("github.com", url)
-        self.assertIn("releases", url)
-    
-    # 注释掉可能导致卡死的网络测试
-    # def test_get_github_release_url(self):
-    #     """测试GitHub Release URL获取"""
-    #     # 这个测试需要网络连接，暂时跳过以避免卡死
-    #     pass
+        self.manager = DownloadManager()
 
     def _fake_release_response(self):
         response = mock.Mock()
@@ -176,8 +156,7 @@ class TestExtractManager(unittest.TestCase):
     
     def setUp(self):
         """设置测试环境"""
-        self.temp_dir = tempfile.mkdtemp()
-        self.manager = ExtractManager(Path(self.temp_dir))
+        self.manager = ExtractManager()
     
     def test_get_format(self):
         """测试格式识别"""

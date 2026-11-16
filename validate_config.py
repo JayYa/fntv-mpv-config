@@ -71,7 +71,7 @@ def validate_config(config_path="package_cfg.json"):
             if has_local_path:
                 local_path = Path(dep_config['local_path'])
                 if not local_path.is_absolute():
-                    local_path = current_dir / local_path
+                    local_path = Path(config_path).resolve().parent / local_path
                 
                 if local_path.exists():
                     if local_path.is_file():

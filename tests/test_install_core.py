@@ -48,14 +48,31 @@ class TestInstallManagerCore(unittest.TestCase):
         """清理测试环境"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
     
+    def test_project_name_must_be_one_directory_level(self):
+        for bad in ["", ".", "..", "a/b", "../x"]:
+            with self.subTest(name=bad):
+                with self.assertRaises(ValueError):
+                    InstallManager(self.test_dir / "output", self.test_dir / "custom_config", bad)
+
+    def test_reset_project_dir_keeps_the_rest_of_the_output_dir(self):
+        output = self.test_dir / "output"
+        (output / "test-config" / "stale").mkdir(parents=True)
+        (output / "other.txt").write_text("keep")
+
+        self.install_manager.reset_project_dir()
+
+        self.assertFalse((output / "test-config" / "stale").exists())
+        self.assertTrue(self.install_manager.portable_config_dir.is_dir())
+        self.assertEqual((output / "other.txt").read_text(), "keep")
+
     def test_default_installation(self):
         """测试默认安装功能"""
         dep_name = "test_plugin"
         excludes = ["*.md"]  # 排除markdown文件
         
         # 执行默认安装
-        self.install_manager._install_extracted_files_default(
-            dep_name, self.source_dir, excludes
+        self.install_manager.install_dependency(
+            dep_name, {"exclude_files": excludes}, self.source_dir
         )
         
         # 验证文件已安装到正确位置（插件安装到portable_config/scripts/下）
@@ -167,7 +184,9 @@ class TestRepositoryCustomConfig(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def test_uosc_danmaku_config_installed_from_dependency_dir(self):
-        self.install_manager.install_dependency("uosc_danmaku", {}, None)
+        empty_content = Path(self.temp_dir) / "content"
+        empty_content.mkdir()
+        self.install_manager.install_dependency("uosc_danmaku", {}, empty_content)
 
         portable = self.install_manager.portable_config_dir
         self.assertEqual(

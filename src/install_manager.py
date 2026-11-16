@@ -9,11 +9,6 @@ from pathlib import Path
 import logging
 
 
-class InstallError(Exception):
-    """安装错误异常"""
-    pass
-
-
 class InstallManager:
     """安装管理器"""
     
@@ -24,67 +19,54 @@ class InstallManager:
         Args:
             output_dir: 输出目录
             custom_config_dir: 自定义配置目录
-            project_name: 项目名称，用于创建子目录
+            project_name: 项目名称，即 project 目录在输出目录下的名字
+
+        Raises:
+            ValueError: project_name 不是单独一级目录名（空、"."、".." 或含路径分隔符）
         """
+        if project_name in ("", ".", "..") or Path(project_name).name != project_name:
+            raise ValueError(f"项目名称必须是单独一级目录名: {project_name!r}")
         self.base_output_dir = Path(output_dir)
-        self.output_dir = self.base_output_dir / project_name  # 在输出目录下创建项目子目录
+        self.output_dir = self.base_output_dir / project_name
         self.custom_config_dir = Path(custom_config_dir)
         self.project_name = project_name
         self.logger = logging.getLogger(__name__)
-        
-        # 创建输出目录
-        self.base_output_dir.mkdir(parents=True, exist_ok=True)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.portable_config_dir = self.output_dir / "portable_config"
-        self.portable_config_dir.mkdir(parents=True, exist_ok=True)
-    
-    def install_dependency(self, name: str, config: Dict[str, Any], extracted_path: Optional[Path] = None):
+
+    def remove_project_dir(self):
+        """删掉 project 目录；输出目录里的其它东西不动"""
+        if self.output_dir.exists():
+            shutil.rmtree(self.output_dir)
+            self.logger.info(f"已删除 project 目录: {self.output_dir}")
+
+    def reset_project_dir(self):
+        """清空 project 目录，让这次构建只含本次安装的文件"""
+        self.remove_project_dir()
+        self.portable_config_dir.mkdir(parents=True)
+
+    def install_dependency(self, name: str, config: Dict[str, Any], content_dir: Path):
         """
-        安装依赖项
-        
+        把依赖的内容目录按规则装进 project 目录，再装 custom_config 下的同名配置
+
         Args:
             name: 依赖项名称
             config: 依赖项配置
-            extracted_path: 解压后的路径，可以为None（仅安装自定义配置）
+            content_dir: 依赖的内容目录
         """
         self.logger.info(f"开始安装 {name}")
-        
-        try:
-            # 获取文件排除配置
-            excludes = config.get('exclude_files', [])
-            
-            # 获取自定义配置安装规则
-            custom_install_rules = config.get('custom_install_rules', [])
-            
-            if extracted_path:
-                if custom_install_rules:
-                    # 如果有自定义安装规则，使用自定义规则安装
-                    self.logger.info(f"{name} 使用自定义安装规则")
-                    for rule in custom_install_rules:
-                        self._apply_custom_config_rule(name, rule, extracted_path)
-                else:
-                    # 使用默认安装方式
-                    self._install_extracted_files_default(name, extracted_path, excludes)
-            else:
-                self.logger.info(f"{name} 没有解压内容，仅安装自定义配置")
-            
-            # 安装custom_config目录下的自定义配置
-            self._install_custom_config(name)
-            
-            self.logger.info(f"{name} 安装完成")
-            
-        except Exception as e:
-            raise InstallError(f"安装 {name} 失败: {e}")
+
+        custom_install_rules = config.get('custom_install_rules', [])
+        if custom_install_rules:
+            self.logger.info(f"{name} 使用自定义安装规则")
+            for rule in custom_install_rules:
+                self._apply_custom_config_rule(name, rule, content_dir)
+        else:
+            self._install_content_default(name, content_dir, config.get('exclude_files', []))
+
+        self._install_custom_config(name)
+        self.logger.info(f"{name} 安装完成")
     
-    def _install_extracted_files_default(self, name: str, extracted_path: Path, excludes: List[str]):
-        """
-        使用默认规则安装解压的文件，移除硬编码逻辑
-        
-        Args:
-            name: 依赖项名称
-            extracted_path: 解压路径
-            excludes: 排除的文件模式
-        """
+    def _install_content_default(self, name: str, content_dir: Path, excludes: List[str]):
         # 根据依赖项类型决定默认安装位置
         if name == 'mpv':
             # MPV主程序安装到根目录
@@ -93,7 +75,7 @@ class InstallManager:
             # 其他插件默认安装到scripts目录下的子目录
             target_path = self.portable_config_dir / "scripts" / name
         
-        self.logger.info(f"默认安装 {name}: {extracted_path} -> {target_path}")
+        self.logger.info(f"默认安装 {name}: {content_dir} -> {target_path}")
         if excludes:
             self.logger.debug(f"排除文件: {excludes}")
         
@@ -101,7 +83,7 @@ class InstallManager:
         target_path.mkdir(parents=True, exist_ok=True)
         
         # 复制所有文件，但排除指定模式
-        self._copy_filtered_files(extracted_path, target_path, "**/*", excludes)
+        self._copy_filtered_files(content_dir, target_path, "**/*", excludes)
     
     def _apply_custom_config_rule(self, name: str, rule: Dict[str, Any], source_base: Path):
         """
@@ -251,12 +233,6 @@ class InstallManager:
             # 普通模式匹配
             return fnmatch.fnmatch(normalized_path, normalized_pattern)
     
-    def _match_recursive_pattern(self, file_path: str, pattern: str) -> bool:
-        """
-        递归匹配包含**的模式 - 保留接口但简化实现
-        """
-        return self._matches_pattern(file_path, pattern)
-    
     def _is_excluded(self, file_path: str, excludes: List[str]) -> bool:
         """
         检查文件路径是否被排除
@@ -317,12 +293,3 @@ class InstallManager:
             except Exception as e:
                 self.logger.error(f"安装 {name} 自定义配置失败: {e}")
                 raise
-
-    def cleanup_output(self):
-        """清理输出目录"""
-        try:
-            if self.output_dir.exists():
-                shutil.rmtree(self.output_dir)
-                self.logger.info(f"已清理输出目录: {self.output_dir}")
-        except Exception as e:
-            self.logger.warning(f"清理输出目录失败: {e}")

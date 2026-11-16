@@ -9,7 +9,7 @@
 ```
 tests/
 ├── test_all.py          # 原有的基础功能测试
-├── test_local_core.py   # 本地包功能核心测试
+├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
 ├── test_package_archive.py # 安装包构建：已知哈希、打包、命名、契约测试失败
@@ -32,8 +32,6 @@ tests/
   - `test_output_dir_*`: 测试输出目录优先级（`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`），空环境变量视为未设置，覆盖值不写回配置文件
 
 - **TestDownloadManager**: 下载管理器测试
-  - `test_init`: 测试下载管理器初始化
-  - `test_parse_github_url`: 测试GitHub URL解析
   - `test_github_api_uses_token_when_set`: 设了 `GITHUB_TOKEN` 时 API 请求带认证头
   - `test_github_api_anonymous_without_token`: 没设时匿名请求
 
@@ -44,16 +42,14 @@ tests/
   - `test_matches_pattern`: 测试文件模式匹配
   - `test_is_excluded`: 测试文件排除功能
 
-#### 2. test_local_core.py - 本地包功能测试
-- **TestLocalPackageCore**: 本地包核心功能测试
-  - `test_is_local_file_detection`: 测试本地文件检测
-    - 测试 local_path 配置检测
-    - 测试 url 为本地路径的检测
-    - 测试网络URL（http/https）的排除
-  - `test_local_directory_handling`: 测试本地文件夹处理
-    - 测试文件夹复制到临时目录
-    - 测试文件结构保持完整
-    - 测试路径生成正确性
+#### 2. test_dependency_source.py - 依赖来源测试
+- **TestDependencySource**: 全部经 `DependencySource.fetch` / `clean` 测，下载器用 mock 替换
+  - 本地文件夹原样作为内容目录，不碰 temp；相对路径以配置文件所在目录为基准
+  - 本地压缩包解压到 temp，单一外层根目录被去掉
+  - 本地路径不存在时报 `FetchError`
+  - 下载后解压，同一依赖之前下载的旧压缩包被删掉
+  - 离线模式用 temp 里缓存的压缩包、不调用下载器；没有缓存时报 `FetchError`
+  - `clean` 删掉整个 temp
 
 #### 3. test_install_core.py - 安装管理器功能测试
 - **TestInstallManagerCore**: 安装管理器核心功能测试
@@ -79,7 +75,7 @@ tests/
 - **TestCheckArchive**: 经 `contract_test` 做的每项契约检查、清单资产与 zip 内清单的比对，以及 `check_archive.py` 的退出码和 `--manifest-asset`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 端到端，用本地假插件跑完整的 `run()`；返回的构建结果指向实际的安装包和清单，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 端到端，用本地假插件跑完整的 `run()`；返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 5. test_package_archive.py - 安装包构建测试
 - **TestKnownHashes**: 合并历史哈希文件与上一版清单，默认读仓库里的 `manifest-history.json`
@@ -95,20 +91,6 @@ tests/
 - **TestEdits**: 菜单里输入时长和「设为当前位置」的校验与换算
 
 ## 新增功能测试
-
-### 本地包支持测试
-
-1. **本地文件检测** (test_is_local_file_detection)
-   - ✅ 检测 `local_path` 配置项
-   - ✅ 检测 `url` 为本地路径
-   - ✅ 排除网络URL (http/https)
-   - ✅ 处理空配置
-
-2. **本地文件夹处理** (test_local_directory_handling)
-   - ✅ 复制文件夹到临时目录
-   - ✅ 保持文件夹结构完整
-   - ✅ 生成正确的提取路径名
-   - ✅ 验证文件内容正确
 
 ### 安装规则重构测试
 
@@ -142,8 +124,8 @@ python run_tests.py
 # 基础功能测试
 python tests/test_all.py
 
-# 本地包功能测试
-python tests/test_local_core.py
+# 依赖来源测试（导入 src 包，从仓库根目录用 -m 运行）
+python -m unittest tests.test_dependency_source
 
 # 安装管理器功能测试
 python tests/test_install_core.py
@@ -193,21 +175,19 @@ OK
 
 ## 测试覆盖的修改内容
 
-### 1. 本地包支持功能
-- ✅ `DownloadManager._is_local_file()` - 本地文件检测
-- ✅ `DownloadManager._handle_local_directory()` - 本地文件夹处理
-- ✅ `DownloadManager._get_directory_name_from_config()` - 目录名生成
-- ✅ `DownloadManager._directory_is_newer()` - 目录时间比较
+### 1. 依赖来源
+- ✅ `DependencySource.fetch()` - 本地文件夹、本地压缩包、下载、离线缓存
+- ✅ `DependencySource.clean()` - 删除临时目录
 
 ### 2. 安装管理器重构
-- ✅ `InstallManager._install_extracted_files_default()` - 默认安装逻辑
+- ✅ `InstallManager.install_dependency()` - 默认安装逻辑（无自定义规则时）
 - ✅ `InstallManager._apply_custom_config_rule()` - 自定义规则应用
 - ✅ 移除硬编码的插件特定逻辑
 - ✅ 简化路径处理逻辑
 
 ### 3. 主流程改进
-- ✅ `main.py` 中本地文件夹检测逻辑
-- ✅ 跳过解压步骤的条件判断
+- ✅ 安装前清空 project 目录，上次构建的残留不进安装包
+- ✅ `--deps` 不带 `--skip-package` / `--skip-install` 时拒绝运行
 - ✅ 配置驱动的安装流程
 
 ## 测试质量保证

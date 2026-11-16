@@ -28,6 +28,10 @@ _Avoid_: 静音模式
 打进安装包的一个上游组件：mpv 本体或一个插件，来自 GitHub Release 或仓库内的本地包。
 _Avoid_: 插件（指 mpv 本体时）, package
 
+**内容目录（content dir）**:
+一个依赖交给安装步骤的目录：压缩包解压后去掉单一外层根目录，本地文件夹则是它本身。
+_Avoid_: 解压目录, extracted
+
 **安装包（package archive）**:
 一次构建产出、发布给客户端下载的 zip，内含 mpv 和 portable_config。
 _Avoid_: 产物, artifact, 归档
