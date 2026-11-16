@@ -18,7 +18,7 @@ tests/
 ├── test_package_archive.py # 安装包构建：已知哈希、打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
-├── test_release.py      # 构建结果 JSON、Release 说明和 --result-file 参数
+├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）和 --result-file 参数
 ```
 
 测试都不访问网络，GitHub API 调用用 `unittest.mock` 替换。
@@ -30,15 +30,16 @@ tests/
 #### 0. test_package_config.py - 打包配置测试
 - **TestLoadPackageConfig**: 全部经 `load_package_config` 测
   - GitHub Release、本地文件夹、本地压缩包三种来源；`local_path` 和 `config` 里的路径按配置文件所在目录解析
-  - 依赖条目写 `enabled`（报错里指向 ADR-0001）、不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format` 都报 `ConfigError`
+  - `enabled` 默认 `true`；停用的依赖（含 mpv）留在 `dependencies` 里，不进依赖布局，入口文件不再必需；停用的依赖照样校验，`enabled` 不是布尔值也报错
+  - 不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format` 都报 `ConfigError`
   - 顶层和 `config` 块的多余字段、缺必填项、`enable_proxy` 不是布尔值、文件不存在或不是 JSON 对象都报错；依赖布局的错误也作为 `ConfigError` 抛出
   - 输出目录优先级：`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`，空环境变量视为未设置
   - 仓库的 `package_cfg.json` 能加载
 
 #### 0b. test_main.py - 命令行测试
 - **TestCommandLine**: 经 `main(argv)` 测
-  - `--list` 列出每个依赖的显示名、版本和来源
-  - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在的依赖名也以 1 结束
+  - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
+  - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
   - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 
 #### 1. test_all.py - 基础功能测试
@@ -96,7 +97,7 @@ tests/
 - **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset` 和 `--config`
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 5. test_package_archive.py - 安装包构建测试
 - **TestKnownHashes**: 合并历史哈希文件与上一版清单，默认读仓库里的 `manifest-history.json`

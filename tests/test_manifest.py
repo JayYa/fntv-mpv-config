@@ -619,6 +619,29 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.assertIn("portable_config/mpv.conf", names)
         self.assertIn("portable_config/fntv/defaults.conf", names)
 
+    def test_disabled_dependency_is_left_out_and_its_managed_files_become_obsolete(self):
+        self.dependencies["uosc_danmaku"]["enabled"] = False
+        history = self.tmp / "history.json"
+        history.write_text(json.dumps({"archives": ["fntv-mpv-v1"], "files": {
+            "scripts/uosc_danmaku/main.lua": [SHA256_ABC],
+            "danmaku-history.json": [SHA256_DEF],
+        }}), encoding="utf-8")
+
+        result, zip_path = self.run_packaging(history_path=str(history))
+
+        self.assertIsNotNone(result)
+        self.assertNotIn(("uosc_danmaku", "v2.1.0"), result.processed_dependencies)
+        self.assertEqual(result.disabled_dependencies, (("uosc_danmaku", "v2.1.0"),))
+        with zipfile.ZipFile(zip_path) as z:
+            manifest = json.loads(z.read("fntv-manifest.json"))
+            names = set(z.namelist())
+        self.assertNotIn("uosc_danmaku", manifest["components"])
+        self.assertNotIn("scripts/uosc_danmaku", manifest["managedDirs"])
+        self.assertNotIn("portable_config/scripts/uosc_danmaku/main.lua", names)
+        self.assertNotIn("portable_config/danmaku-history.json", names)
+        obsolete = [entry["path"] for entry in manifest["obsolete"]]
+        self.assertIn("scripts/uosc_danmaku/main.lua", obsolete)
+
     def test_leftovers_from_an_earlier_build_stay_out_of_the_archive(self):
         project_name = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]
         stale = self.tmp / "out" / project_name / "portable_config" / "scripts" / "uosc" / "removed.lua"

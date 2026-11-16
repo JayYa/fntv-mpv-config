@@ -6,7 +6,7 @@ import argparse
 import sys
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from .dependency_source import DependencySource
 from .install_manager import InstallManager
@@ -74,12 +74,12 @@ class MPVConfigManager:
 
             if not skip_install:
                 installer.reset_project_dir()
-                installer.install_base_config(config.layout)
+                installer.install_base_config(config.archive_layout)
             for dep_name, entry in target_dependencies.items():
                 try:
                     content_dir = source.fetch(dep_name, entry.source)
                     if not skip_install:
-                        installer.install_dependency(config.layout.placements[dep_name], content_dir)
+                        installer.install_dependency(config.archive_layout.placements[dep_name], content_dir)
                 except Exception as e:
                     self.logger.error(f"处理依赖项 {dep_name} 失败: {e}")
                     return None
@@ -87,18 +87,18 @@ class MPVConfigManager:
             result = BuildResult(
                 output_dir=installer.base_output_dir.resolve(),
                 project_dir=installer.output_dir.resolve(),
-                processed_dependencies=tuple(Dependency(entry.display_name, entry.version)
-                                             for entry in target_dependencies.values()),
+                processed_dependencies=_release_dependencies(target_dependencies),
+                disabled_dependencies=_release_dependencies(config.disabled_dependencies),
             )
 
             if create_package and not skip_install:
                 known = KnownHashes.load(history_path, previous_manifest_path)
                 if previous_manifest_path:
                     self.logger.info(f"并入上一版清单: {previous_manifest_path}")
-                components = {name: entry.version for name, entry in config.dependencies.items()}
+                components = {name: entry.version for name, entry in config.enabled_dependencies.items()}
                 try:
                     package = build_package_archive(installer.output_dir, components, known,
-                                                    config.layout, timestamp=package_timestamp)
+                                                    config.archive_layout, timestamp=package_timestamp)
                 except ContractTestFailed as e:
                     for error in e.errors:
                         self.logger.error(f"契约测试失败: {error}")
@@ -129,7 +129,8 @@ class MPVConfigManager:
         config = self._load()
         self.logger.info("依赖项:")
         for name, entry in config.dependencies.items():
-            self.logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}）")
+            disabled_note = "" if entry.enabled else "，已停用"
+            self.logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}{disabled_note}）")
 
     def clean_directories(self, clean_temp: bool = True, clean_output: bool = False):
         """
@@ -170,13 +171,26 @@ class MPVConfigManager:
 
 def _target_dependencies(config: PackageConfig,
                          names: Optional[List[str]]) -> Dict[str, DependencySpec]:
+    enabled = config.enabled_dependencies
     if names is None:
-        return dict(config.dependencies)
+        return dict(enabled)
     unknown = [name for name in names if name not in config.dependencies]
+    disabled = [name for name in names if name in config.disabled_dependencies]
+    problems = []
     if unknown:
-        raise ConfigError(f"没有这些依赖项: {', '.join(unknown)}；"
-                          f"可选: {', '.join(config.dependencies)}")
-    return {name: config.dependencies[name] for name in names}
+        problems.append(f"没有这些依赖项: {', '.join(unknown)}")
+    if disabled:
+        problems.append(f"这些依赖项已停用: {', '.join(disabled)}，要处理请先在 package_cfg.json 里把 enabled 改成 true")
+    if problems:
+        hint = f"可选: {', '.join(enabled)}"
+        if config.disabled_dependencies:
+            hint += f"；已停用: {', '.join(config.disabled_dependencies)}"
+        raise ConfigError("；".join(problems + [hint]))
+    return {name: enabled[name] for name in names}
+
+
+def _release_dependencies(dependencies: Mapping[str, DependencySpec]) -> Tuple[Dependency, ...]:
+    return tuple(Dependency(entry.display_name, entry.version) for entry in dependencies.values())
 
 
 def _describe(entry: DependencySpec) -> str:

@@ -4,6 +4,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -78,6 +79,14 @@ class ReleaseTestCase(unittest.TestCase):
 
 
 class TestRenderReleaseNotes(ReleaseTestCase):
+
+    def test_notes_name_the_disabled_dependencies(self):
+        result = replace(self.result, disabled_dependencies=(Dependency("uosc_danmaku", "v2.1.0"),))
+
+        notes = render_release_notes(result, GITHUB_ENV)
+
+        self.assertIn("- 🔧 smart_skip\n\n已停用：uosc_danmaku\n", notes)
+        self.assertNotIn("已停用", render_release_notes(self.result, GITHUB_ENV))
 
     def test_notes_on_github_actions(self):
         notes = render_release_notes(self.result, GITHUB_ENV)

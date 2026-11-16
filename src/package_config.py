@@ -4,7 +4,7 @@
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
@@ -44,6 +44,7 @@ class DependencySpec:
     display_name: str
     version: str
     source: Source
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,15 @@ class PackageConfig:
     github_proxy: str
     enable_proxy: bool
     dependencies: Mapping[str, DependencySpec]
-    layout: DependencyLayout
+    archive_layout: DependencyLayout
+
+    @property
+    def enabled_dependencies(self) -> Mapping[str, DependencySpec]:
+        return {name: dep for name, dep in self.dependencies.items() if dep.enabled}
+
+    @property
+    def disabled_dependencies(self) -> Mapping[str, DependencySpec]:
+        return {name: dep for name, dep in self.dependencies.items() if not dep.enabled}
 
 
 def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None) -> PackageConfig:
@@ -89,6 +98,8 @@ def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None
         layout = load_layout(raw_dependencies, base_dir / _text("config", settings, "custom_config_dir"))
     except LayoutError as e:
         raise ConfigError(str(e)) from e
+    layout = replace(layout, placements={name: placement for name, placement in layout.placements.items()
+                                         if dependencies[name].enabled})
     configured_output_dir = base_dir / _text("config", settings, "output_dir")
     enable_proxy = settings.get("enable_proxy", False)
     if not isinstance(enable_proxy, bool):
@@ -100,7 +111,7 @@ def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None
         github_proxy=_optional_text("config", settings, "github_proxy"),
         enable_proxy=enable_proxy,
         dependencies=dependencies,
-        layout=layout,
+        archive_layout=layout,
     )
 
 
@@ -124,22 +135,23 @@ _GITHUB_RELEASES = re.compile(r"https://github\.com/([^/]+)/([^/]+)/releases/?")
 
 
 _GITHUB_KEYS = {"url", "filename_pattern", "format"}
-_DEPENDENCY_KEYS = {"name", "version", "local_path"} | _GITHUB_KEYS | LAYOUT_KEYS
+_DEPENDENCY_KEYS = {"name", "version", "enabled", "local_path"} | _GITHUB_KEYS | LAYOUT_KEYS
 
 
 def _dependency(name: str, dep: Any, base_dir: Path) -> DependencySpec:
     if not isinstance(dep, Mapping):
         raise ConfigError(f"依赖 {name} 必须是对象: {dep!r}")
-    if "enabled" in dep:
-        raise ConfigError(f"依赖 {name} 不能写 enabled：所有依赖都打进安装包，"
-                          "下线插件要删掉整个条目（见 docs/adr/0001-entries-are-a-client-contract.md，ADR-0001）")
     _reject_unknown_keys(f"依赖 {name}", dep, _DEPENDENCY_KEYS)
+    enabled = dep.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise ConfigError(f"依赖 {name} 的 enabled 必须是 true 或 false: {enabled!r}")
     if ("url" in dep) == ("local_path" in dep):
         raise ConfigError(f"依赖 {name} 必须且只能写 url 和 local_path 其中之一："
                           "url 或 local_path 决定它从哪来")
     source = _local_source(name, dep, base_dir) if "local_path" in dep else _github_release(name, dep)
     return DependencySpec(display_name=_text(f"依赖 {name}", dep, "name"),
-                           version=_text(f"依赖 {name}", dep, "version"), source=source)
+                           version=_text(f"依赖 {name}", dep, "version"), source=source,
+                           enabled=enabled)
 
 
 def _local_source(name: str, dep: Mapping[str, Any], base_dir: Path) -> Source:
