@@ -35,13 +35,6 @@ mutils.SCRIPT   = mp.get_script_name()
 local conf_dir  = mp.command_native({ "expand-path", "~~/script-opts" })
 local conf_path = conf_dir .. "/" .. mutils.SCRIPT .. ".conf"
 
-function mutils.to_json(tbl)
-    -- utils.format_json 成功时返回 1 个值；失败时返回 (nil, "error")
-    local s, err = utils.format_json(tbl)
-    if not s then return nil, err end
-    return s
-end
-
 function mutils.dur() return mp.get_property_number('duration', 0) or 0 end
 
 function mutils.timepos() return mp.get_property_number('time-pos', 0) or 0 end

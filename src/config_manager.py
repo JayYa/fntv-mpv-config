@@ -110,24 +110,6 @@ class ConfigManager:
         dependencies = self.get_config()['dependencies']
         return {name: dep for name, dep in dependencies.items() if dep.get('enabled', True)}
     
-    def get_dependency(self, name: str) -> Dict[str, Any]:
-        """
-        获取指定依赖项配置
-        
-        Args:
-            name: 依赖项名称
-            
-        Returns:
-            依赖项配置
-            
-        Raises:
-            ConfigError: 依赖项不存在
-        """
-        dependencies = self.get_config()['dependencies']
-        if name not in dependencies:
-            raise ConfigError(f"依赖项不存在: {name}")
-        return dependencies[name]
-    
     def save_config(self, config: Dict[str, Any]):
         """
         保存配置到文件
