@@ -3,8 +3,6 @@ MPV 归档清单 fntv-manifest.json
 
 清单放在安装包根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
 客户端靠它按 conffile 方式同步用户配置。格式见 JayYa/fntv-electron#219。
-
-清单的 JSON 格式只有这里知道：Manifest.parse 读入并校验结构，Manifest.to_bytes 写出。
 """
 import fnmatch
 import hashlib
@@ -44,8 +42,6 @@ PROVIDES = {
 
 
 class ManifestError(Exception):
-    """清单或历史哈希读不出、结构不对，或生成清单时有文件没有归属"""
-
     def __init__(self, errors: Iterable[str]):
         self.errors = list(errors)
         super().__init__("；".join(self.errors))
@@ -108,8 +104,10 @@ class Manifest:
         if not _is_str_list(managed_dirs):
             errors.add("managedDirs 应为字符串数组")
             managed_dirs = []
-        files, file_paths = _parse_files(raw.get("files"), errors)
-        obsolete = _parse_obsolete(raw.get("obsolete"), file_paths, errors)
+        file_entries = list(_unique_entries_with_path(raw.get("files"), "files", "缺少 files 列表", errors))
+        files = _parse_files(file_entries, errors)
+        listed_paths = {path for path, _ in file_entries}
+        obsolete = _parse_obsolete(raw.get("obsolete"), listed_paths, errors)
         errors.raise_if_any()
         return cls(archive_version=archive_version, components=dict(components),
                    managed_dirs=tuple(managed_dirs), files=files, obsolete=obsolete,
@@ -150,9 +148,8 @@ def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
-def _entries_by_path(entries: Any, section: str, missing: str,
-                     errors: _Errors) -> Iterator[Tuple[str, dict]]:
-    """files / obsolete 里每条带 path 的对象，跳过不带 path 的和重复的（都记为错误）"""
+def _unique_entries_with_path(entries: Any, section: str, missing: str,
+                              errors: _Errors) -> Iterator[Tuple[str, dict]]:
     if not isinstance(entries, list):
         errors.add(missing)
         return
@@ -169,12 +166,9 @@ def _entries_by_path(entries: Any, section: str, missing: str,
         yield path, entry
 
 
-def _parse_files(entries: Any, errors: _Errors) -> Tuple[Tuple[ManifestFile, ...], Set[str]]:
-    """返回结构正确的条目，以及 files 里出现过的全部路径"""
+def _parse_files(entries: List[Tuple[str, dict]], errors: _Errors) -> Tuple[ManifestFile, ...]:
     files: List[ManifestFile] = []
-    paths: Set[str] = set()
-    for path, entry in _entries_by_path(entries, "files", "缺少 files 列表", errors):
-        paths.add(path)
+    for path, entry in entries:
         sha256, role, known = entry.get("sha256"), entry.get("role"), entry.get("knownHashes")
         valid = True
         if not _is_str(sha256):
@@ -188,13 +182,13 @@ def _parse_files(entries: Any, errors: _Errors) -> Tuple[Tuple[ManifestFile, ...
             valid = False
         if valid:
             files.append(ManifestFile(path, sha256, role, tuple(known)))
-    return tuple(files), paths
+    return tuple(files)
 
 
-def _parse_obsolete(entries: Any, file_paths: Set[str], errors: _Errors) -> Tuple[ObsoleteFile, ...]:
+def _parse_obsolete(entries: Any, listed_paths: Set[str], errors: _Errors) -> Tuple[ObsoleteFile, ...]:
     obsolete: List[ObsoleteFile] = []
-    for path, entry in _entries_by_path(entries, "obsolete", "obsolete 应为数组", errors):
-        if path in file_paths:
+    for path, entry in _unique_entries_with_path(entries, "obsolete", "obsolete 应为数组", errors):
+        if path in listed_paths:
             errors.add(f"{path} 同时出现在 files 和 obsolete 里")
         known = entry.get("knownHashes")
         if not _is_str_list(known):
@@ -205,7 +199,6 @@ def _parse_obsolete(entries: Any, file_paths: Set[str], errors: _Errors) -> Tupl
 
 
 def write_manifest(archive_root: Path, manifest: Manifest) -> Path:
-    """把清单写到安装包根目录（与 mpv.exe、portable_config 同级）"""
     path = Path(archive_root) / MANIFEST_NAME
     path.write_bytes(manifest.to_bytes())
     return path
@@ -245,7 +238,6 @@ def portable_config_entries(z: zipfile.ZipFile) -> Iterator[Tuple[str, bytes]]:
 
 @dataclass(frozen=True)
 class ManifestHistory:
-    """历史哈希：历次安装包里每个 portable_config 路径出现过的 sha256"""
     archives: Tuple[str, ...] = ()
     files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
 
@@ -300,9 +292,6 @@ def history_from_archives(archives: List[Tuple[str, Path]]) -> ManifestHistory:
 
 @dataclass(frozen=True)
 class KnownHashes:
-    """
-    已知哈希：历史哈希与上一版清单合并后，每个路径出现过的全部 sha256
-    """
     hashes: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     previously_obsolete: FrozenSet[str] = frozenset()
 

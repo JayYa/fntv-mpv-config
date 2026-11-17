@@ -1,4 +1,3 @@
-"""契约测试：发版前对安装包与清单做的一致性检查"""
 import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -118,8 +117,7 @@ def _check_manifest_asset(manifest_bytes: bytes, asset_path: Path) -> List[str]:
     return []
 
 
-def _effective_lines(data: bytes) -> List[str]:
-    """mpv 配置文件里去掉注释和空行后的行（足够判断分层结构，不是完整的 mpv 解析）"""
+def _lines_without_comments(data: bytes) -> List[str]:
     text = data.decode("utf-8-sig", errors="replace")
     lines = []
     for raw in text.splitlines():
@@ -134,7 +132,7 @@ def _effective_lines(data: bytes) -> List[str]:
 
 def _check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]:
     errors = []
-    lines = _effective_lines(mpv_conf)
+    lines = _lines_without_comments(mpv_conf)
     first = lines[0] if lines else ""
     if not first.startswith("include"):
         errors.append(f"mpv.conf 的首个有效行应为 {INCLUDE_LINE}，实际为 {first!r}"
@@ -148,7 +146,7 @@ def _check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]
     if len(lines) < 2 or lines[1].replace(" ", "") != f"profile={DEFAULTS_PROFILE}":
         errors.append(f"mpv.conf 的 include 行后应紧跟 profile={DEFAULTS_PROFILE}，"
                       "否则默认值会排在用户设置之后生效")
-    defaults = _effective_lines(defaults_conf)
+    defaults = _lines_without_comments(defaults_conf)
     if not defaults or defaults[0] != f"[{DEFAULTS_PROFILE}]":
         errors.append(f"{DEFAULTS_CONF} 的设置必须全部写在 [{DEFAULTS_PROFILE}] 段里，"
                       f"首个有效行应为 [{DEFAULTS_PROFILE}]")

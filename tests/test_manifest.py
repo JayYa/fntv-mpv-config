@@ -1,5 +1,3 @@
-"""MPV 归档清单 fntv-manifest.json 的格式、生成、历史哈希，以及跑完整打包流程的端到端测试"""
-
 import json
 import shutil
 import sys
@@ -102,7 +100,6 @@ class TestBuildManifest(unittest.TestCase):
 
 def manifest_json(archive_version="fntv-mpv-v20261114_235959", files=(), obsolete=(),
                   **fields) -> bytes:
-    """一份结构完整的清单，fields 覆盖或增加顶层字段"""
     data = {"formatVersion": 1, "archiveVersion": archive_version,
             "components": {"uosc": "5.13.0"}, "provides": {"smart-skip.origin-from-play-url": 1},
             "managedDirs": [], "files": list(files), "obsolete": list(obsolete)}
@@ -115,8 +112,6 @@ def previous_manifest(files=(), obsolete=()) -> Manifest:
 
 
 class TestParseManifest(unittest.TestCase):
-    """清单的结构由 Manifest.parse 一处校验，一次报出全部结构错误"""
-
     def assertRejected(self, data: bytes, *fragments):
         with self.assertRaises(ManifestError) as caught:
             Manifest.parse(data, "清单")

@@ -1,5 +1,3 @@
-"""契约测试：经 contract_test 和根目录的 check_archive.py 对安装包做的一致性检查"""
-
 import json
 import shutil
 import subprocess
@@ -28,7 +26,6 @@ class ArchiveFixture(unittest.TestCase):
 
     def make_zip(self, portable_files=None, edit_manifest=None, extra_zip_files=None,
                  include_manifest=True, include_mpv=True, known=None):
-        """按 portable_files 生成清单，可选地改清单或往 zip 里多塞文件，返回 zip 路径"""
         portable_files = VALID_PORTABLE_CONFIG if portable_files is None else portable_files
         root = self.tmp / "build"
         shutil.rmtree(root, ignore_errors=True)
@@ -164,23 +161,24 @@ class TestContractTest(ArchiveFixture):
         self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
 
     def test_mpv_conf_layering_is_checked(self):
-        # 首个有效行不是 include
-        self.assertMpvConfRejected(
-            b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n')
-        # include 路径没有 ~~/ 前缀（会按进程当前目录解析）
-        self.assertMpvConfRejected(b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n')
-        # include 写在 profile 段里
-        self.assertMpvConfRejected(
-            b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n')
-        # 没有紧跟 profile=fntv-defaults：默认值会排在用户设置之后
-        self.assertMpvConfRejected(b'include="~~/fntv/defaults.conf"\nvo=gpu\n')
-        # defaults.conf 的选项没放进 [fntv-defaults] 段
-        self.assertMpvConfRejected(THIN_MPV_CONF, defaults=b"vo=gpu-next\n[fntv-defaults]\n")
+        cases = {
+            "首个有效行不是 include": (
+                b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+            "include 路径没有 ~~/ 前缀，会按进程当前目录解析": (
+                b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+            "include 写在 profile 段里": (
+                b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+            "include 后没有紧跟 profile=fntv-defaults，默认值会排在用户设置之后": (
+                b'include="~~/fntv/defaults.conf"\nvo=gpu\n', None),
+            "defaults.conf 的选项没放进 [fntv-defaults] 段": (
+                THIN_MPV_CONF, b"vo=gpu-next\n[fntv-defaults]\n"),
+        }
+        for problem, (mpv_conf, defaults) in cases.items():
+            with self.subTest(problem):
+                self.assertMpvConfRejected(mpv_conf, defaults)
 
 
 class TestKnownHashesKept(ArchiveFixture):
-    """已知哈希只增不减"""
-
     def test_contract_fails_when_a_history_hash_is_dropped(self):
         known = KnownHashes.merge(ManifestHistory(("fntv-mpv-v1",), {
             "input.conf": (SHA256_ABC,),
@@ -211,8 +209,6 @@ class TestKnownHashesKept(ArchiveFixture):
 
 
 class TestCheckArchiveCommandLine(ArchiveFixture):
-    """根目录的 check_archive.py"""
-
     def run_script(self, zip_path, *args):
         empty_history = self.tmp / "empty-history.json"
         empty_history.write_text('{"archives": [], "files": {}}', encoding="utf-8")
