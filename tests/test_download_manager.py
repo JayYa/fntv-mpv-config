@@ -225,6 +225,12 @@ class TestPreviousManifest(unittest.TestCase):
         with self.assertRaisesRegex(DownloadError, "fntv-mpv-v20261101_000000"):
             self.previous_manifest(github)
 
+    def test_a_manifest_without_files_fails(self):
+        github = FakeGithub({"fntv-manifest.json": json.dumps({"archiveVersion": LATEST_TAG}).encode()})
+
+        with self.assertRaisesRegex(DownloadError, "files"):
+            self.previous_manifest(github)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

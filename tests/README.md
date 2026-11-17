@@ -60,7 +60,7 @@ tests/
   - 代理只加在资产下载地址上，不加在 API 上；设了 `GITHUB_TOKEN` 时 API 请求带认证头，没设时匿名
 - **TestPreviousManifest**: 经 `DownloadManager.previous_manifest` 测，注入假的 HTTP 会话
   - 返回最新一版 Release 附带的清单
-  - 那版 Release 没有 `fntv-manifest.json` 时报错，不下载；清单的 `archiveVersion` 不是那版的 tag 时报错
+  - 那版 Release 没有 `fntv-manifest.json` 时报错，不下载；清单的 `archiveVersion` 不是那版的 tag、或缺少 `files` 列表时报错
 
 #### 1b. test_extract.py - 解压测试
 - **TestExtractArchive**

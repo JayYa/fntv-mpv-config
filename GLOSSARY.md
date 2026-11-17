@@ -85,7 +85,7 @@ _Avoid_: 类型, 分类
 _Avoid_: 历史版本
 
 **上一版清单（previous manifest）**:
-最新一版 Release 附带的清单；它的已知哈希和过时文件并入本次清单。CI 构建拿不到它、或它不属于那版 Release 时构建失败。
+最新一版 Release 附带的清单；它的已知哈希和过时文件并入本次清单。指定从 Release 取（CI 总是这样）而拿不到它、或它不属于那版 Release 时构建失败。
 _Avoid_: 旧清单, 历史清单
 
 **过时文件（obsolete file）**:
@@ -97,5 +97,5 @@ _Avoid_: 已删除文件, 废弃文件
 _Avoid_: 校验, 验证脚本
 
 **构建结果（build result）**:
-一次构建交给发布步骤的全部事实：安装包与清单的位置、归档版本、Release 标题、artifact 名、发布说明。发布步骤只读它，不自行推导任何命名。
+一次构建交给发布步骤的全部事实：安装包与清单的位置、归档版本、Release 标题、GitHub Actions 构建产物的名字、发布说明。发布步骤只读它，不自行推导任何命名。
 _Avoid_: 发布契约, 构建输出, build output

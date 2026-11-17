@@ -72,30 +72,30 @@ class DownloadManager:
             DownloadError: 读不到 Release、它没有清单资产、下载失败，或清单不属于这个 Release
         """
         try:
-            release = self._release(repo_path, "latest", f"{repo_path} 还没有 Release")
-            tag = release["tag_name"]
+            release = self._get_release(f"{repo_path}/releases/latest", f"{repo_path} 还没有 Release")
+            where = f"{repo_path} 的 Release {release['tag_name']}"
             asset = next((a for a in _assets(release) if a.name == MANIFEST_NAME), None)
             if asset is None:
-                raise DownloadError(f"{repo_path} 的 Release {tag} 没有 {MANIFEST_NAME}")
+                raise DownloadError(f"{where} 没有 {MANIFEST_NAME}")
             file_path = Path(dest_dir) / MANIFEST_NAME
             Path(dest_dir).mkdir(parents=True, exist_ok=True)
             self._download_file(self._proxied(asset.url), file_path, asset.size)
             manifest = json.loads(file_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
+                raise DownloadError(f"{where} 里的 {MANIFEST_NAME} 缺少 files 列表")
+            if manifest.get("archiveVersion") != release["tag_name"]:
+                raise DownloadError(f"{where} 里的 {MANIFEST_NAME} 属于 "
+                                    f"{manifest.get('archiveVersion')}，不是这个 Release")
+            return manifest
         except (DownloadError, requests.RequestException, OSError, ValueError, KeyError) as e:
             raise DownloadError(f"读取上一版清单失败: {e}") from e
-        if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
-            raise DownloadError(f"{repo_path} 的 Release {tag} 里的 {MANIFEST_NAME} 缺少 files 列表")
-        if manifest.get("archiveVersion") != tag:
-            raise DownloadError(f"{repo_path} 的 Release {tag} 里的 {MANIFEST_NAME} 属于 "
-                                f"{manifest.get('archiveVersion')}，不是这个 Release")
-        return manifest
 
     def _release_assets(self, release: GithubRelease) -> List[Asset]:
-        return _assets(self._release(release.repo_path, f"tags/{release.version}",
-                                     f"{release.repo_path} 没有 tag 为 {release.version} 的 Release"))
+        return _assets(self._get_release(f"{release.repo_path}/releases/tags/{release.version}",
+                                         f"{release.repo_path} 没有 tag 为 {release.version} 的 Release"))
 
-    def _release(self, repo_path: str, which: str, not_found: str) -> dict:
-        api_url = f"https://api.github.com/repos/{repo_path}/releases/{which}"
+    def _get_release(self, release_path: str, not_found: str) -> dict:
+        api_url = f"https://api.github.com/repos/{release_path}"
         response = self.session.get(api_url, headers=github_api_headers(), timeout=API_TIMEOUT)
         if response.status_code in (403, 429):
             raise DownloadError(f"GitHub API 拒绝请求（HTTP {response.status_code}），多半是限流；"

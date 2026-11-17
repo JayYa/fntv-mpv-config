@@ -46,7 +46,6 @@ jobs:
     - name: Run MPV config build
       id: build
       run: |
-        # 上一版清单的 knownHashes 和 obsolete 并入本次清单；拿不到它时构建失败
         $resultFile = Join-Path $env:RUNNER_TEMP "build/build-result.json"
         python run.py --log-level INFO --result-file $resultFile --previous-release "$env:GITHUB_REPOSITORY"
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

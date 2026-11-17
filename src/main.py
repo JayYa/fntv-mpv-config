@@ -3,7 +3,6 @@
 协调各个模块的工作，提供命令行界面
 """
 import argparse
-import json
 import logging
 import sys
 import tempfile
@@ -15,7 +14,6 @@ from .dependency_source import DependencySource
 from .download_manager import DownloadManager
 from .install_manager import InstallManager
 from .log_setup import setup_logging
-from .manifest import DEFAULT_HISTORY_PATH, load_history
 from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                               remove_package_archives, validate_package_timestamp)
 from .package_config import (ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig,
@@ -83,8 +81,10 @@ class MPVConfigManager:
             packaging = create_package and not skip_install
             known = None
             if packaging:
-                known = KnownHashes.merge(load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH),
-                                          self._previous_manifest(config, previous_manifest_path, previous_release))
+                if previous_manifest_path:
+                    self.logger.info(f"并入上一版清单: {previous_manifest_path}")
+                known = KnownHashes.load(history_path, previous_manifest_path,
+                                         self._latest_manifest(config, previous_release))
 
             if not skip_install:
                 installer.reset_project_dir()
@@ -167,19 +167,14 @@ class MPVConfigManager:
             for path in remove_package_archives(config.output_dir):
                 self.logger.info(f"已删除文件: {path.name}")
 
-    def _previous_manifest(self, config: PackageConfig, path: Optional[str],
-                           repo_path: Optional[str]) -> Optional[dict]:
-        if repo_path:
-            downloader = DownloadManager(config.github_proxy, config.enable_proxy)
-            with tempfile.TemporaryDirectory() as dest_dir:
-                manifest = downloader.previous_manifest(repo_path, Path(dest_dir))
-            self.logger.info(f"并入上一版清单: {repo_path} {manifest['archiveVersion']}")
-            return manifest
-        if path:
-            self.logger.info(f"并入上一版清单: {path}")
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return None
+    def _latest_manifest(self, config: PackageConfig, repo_path: Optional[str]) -> Optional[dict]:
+        if not repo_path:
+            return None
+        downloader = DownloadManager(config.github_proxy, config.enable_proxy)
+        with tempfile.TemporaryDirectory() as dest_dir:
+            manifest = downloader.previous_manifest(repo_path, Path(dest_dir))
+        self.logger.info(f"并入上一版清单: {repo_path} {manifest['archiveVersion']}")
+        return manifest
 
     def _load(self) -> PackageConfig:
         return load_package_config(self.config_path, self.output_dir_override)
