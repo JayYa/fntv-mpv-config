@@ -85,7 +85,7 @@ _Avoid_: 类型, 分类
 _Avoid_: 历史版本
 
 **上一版清单（previous manifest）**:
-最新一版 Release 附带的清单；它的已知哈希和过时文件并入本次清单。指定从 Release 取（CI 总是这样）而拿不到它、或它不属于那版 Release 时构建失败。
+最新一版 Release 附带的清单；它的已知哈希和过时文件并入本次清单。指定从 Release 取（CI 总是这样）而拿不到它、或它不属于那版 Release 时构建失败；指定的本地文件读不出清单时同样失败。
 _Avoid_: 旧清单, 历史清单
 
 **过时文件（obsolete file）**:

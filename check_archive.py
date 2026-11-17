@@ -13,8 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.package_archive import KnownHashes, contract_test  # noqa: E402
+from src.package_archive import contract_test  # noqa: E402
 from src.package_config import ConfigError, load_package_config  # noqa: E402
+from src.previous_manifest import (PreviousManifestError, PreviousManifestFile,  # noqa: E402
+                                   load_known_hashes)
 
 DEFAULT_CONFIG = Path(__file__).parent / "package_cfg.json"
 
@@ -38,8 +40,13 @@ def main() -> int:
     except ConfigError as e:
         print(f"读取打包配置失败: {e}")
         return 1
-    errors = contract_test(Path(args.zip_path), KnownHashes.load(args.history, args.previous_manifest),
-                           layout, archive_version=args.archive_version,
+    previous = PreviousManifestFile(Path(args.previous_manifest)) if args.previous_manifest else None
+    try:
+        known = load_known_hashes(args.history, previous)
+    except PreviousManifestError as e:
+        print(e)
+        return 1
+    errors = contract_test(Path(args.zip_path), known, layout, archive_version=args.archive_version,
                            manifest_asset=args.manifest_asset)
     if errors:
         print(f"契约测试失败（{len(errors)} 项）:")

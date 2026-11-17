@@ -1,13 +1,11 @@
-import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import requests
 from tqdm import tqdm
 
-from .manifest import MANIFEST_NAME
 from .package_config import GithubRelease
 
 API_TIMEOUT = 10
@@ -64,31 +62,30 @@ class DownloadManager:
         except (DownloadError, requests.RequestException, OSError, ValueError, KeyError) as e:
             raise DownloadError(f"下载 {name} 失败: {e}") from e
 
-    def previous_manifest(self, repo_path: str, dest_dir: Path) -> dict:
+    def latest_release_asset(self, repo_path: str, asset_name: str, dest_dir: Path) -> Tuple[str, Path]:
         """
-        下载 repo_path 最新一版 Release 附带的清单，作为上一版清单返回
+        把 repo_path 最新一版 Release 里名为 asset_name 的资产下载到 dest_dir
+
+        Returns:
+            (Release 的 tag, 下载到的文件)
 
         Raises:
-            DownloadError: 读不到 Release、它没有清单资产、下载失败，或清单不属于这个 Release
+            DownloadError: 读不到 Release、它没有这个资产、下载失败或大小不符
         """
         try:
             release = self._get_release(f"{repo_path}/releases/latest", f"{repo_path} 还没有 Release")
-            where = f"{repo_path} 的 Release {release['tag_name']}"
-            asset = next((a for a in _assets(release) if a.name == MANIFEST_NAME), None)
+            tag = release["tag_name"]
+            asset = next((a for a in _assets(release) if a.name == asset_name), None)
             if asset is None:
-                raise DownloadError(f"{where} 没有 {MANIFEST_NAME}")
-            file_path = Path(dest_dir) / MANIFEST_NAME
+                raise DownloadError(f"{repo_path} 的 Release {tag} 没有 {asset_name}")
+            file_path = Path(dest_dir) / asset_name
             Path(dest_dir).mkdir(parents=True, exist_ok=True)
             self._download_file(self._proxied(asset.url), file_path, asset.size)
-            manifest = json.loads(file_path.read_text(encoding="utf-8"))
-            if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
-                raise DownloadError(f"{where} 里的 {MANIFEST_NAME} 缺少 files 列表")
-            if manifest.get("archiveVersion") != release["tag_name"]:
-                raise DownloadError(f"{where} 里的 {MANIFEST_NAME} 属于 "
-                                    f"{manifest.get('archiveVersion')}，不是这个 Release")
-            return manifest
-        except (DownloadError, requests.RequestException, OSError, ValueError, KeyError) as e:
-            raise DownloadError(f"读取上一版清单失败: {e}") from e
+            return tag, file_path
+        except DownloadError:
+            raise
+        except (requests.RequestException, OSError, ValueError, KeyError) as e:
+            raise DownloadError(f"下载 {repo_path} 最新 Release 的 {asset_name} 失败: {e}") from e
 
     def _release_assets(self, release: GithubRelease) -> List[Asset]:
         return _assets(self._get_release(f"{release.repo_path}/releases/tags/{release.version}",

@@ -8,7 +8,8 @@
 
 ```
 tests/
-├── test_download_manager.py # 下载器：select_asset 直接用资产列表测，HTTP 行为经 download() 和假的会话测
+├── test_download_manager.py # 下载器：select_asset 直接用资产列表测，HTTP 行为经 download()、latest_release_asset() 和假的会话测
+├── test_previous_manifest.py # 上一版清单：经 load_known_hashes 测 Release 和本地文件两种来源
 ├── test_extract.py      # 解压：格式识别、tar 解压和越界成员
 ├── test_package_config.py # 打包配置：经 load_package_config 测三种依赖来源和字段校验
 ├── test_main.py         # 命令行：参数校验，以及经 main(argv) 测 --list、--clean、--deps 的输出和退出码
@@ -16,15 +17,15 @@ tests/
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
 ├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
-├── test_package_archive.py # 安装包构建：已知哈希、打包、命名、契约测试失败
+├── test_package_archive.py # 安装包构建：打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
 ├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）
 ```
 
-测试都不访问网络：下载器的测试给 `DownloadManager` 注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
+测试都不访问网络：下载器、上一版清单和端到端 `run()` 的测试注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
 
-`test_manifest.py` 覆盖清单生成（`build_manifest`）、经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑的契约测试，以及两个跑完整 `run()` 的端到端测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
+`test_manifest.py` 覆盖清单生成（`build_manifest`）、经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑的契约测试，以及跑完整 `run()` 的端到端测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 
 ### 测试模块详情
 
@@ -58,9 +59,15 @@ tests/
   - 已有文件大小等于资产大小时不重下，大小不同时重下
   - 下载的字节数和资产大小对不上、或连接中途断开时报错，不留下文件
   - 代理只加在资产下载地址上，不加在 API 上；设了 `GITHUB_TOKEN` 时 API 请求带认证头，没设时匿名
-- **TestPreviousManifest**: 经 `DownloadManager.previous_manifest` 测，注入假的 HTTP 会话
-  - 返回最新一版 Release 附带的清单
-  - 那版 Release 没有 `fntv-manifest.json` 时报错，不下载；清单的 `archiveVersion` 不是那版的 tag、或缺少 `files` 列表时报错
+- **TestLatestReleaseAsset**: 经 `DownloadManager.latest_release_asset` 测，注入假的 HTTP 会话
+  - 下载最新一版 Release 里指定名字的资产，返回 tag 和文件
+  - 那版 Release 没有这个资产时报错，不下载
+
+#### 1a. test_previous_manifest.py - 上一版清单测试
+- **TestLoadKnownHashes**: 经 `load_known_hashes` 测，Release 来源注入假的 HTTP 会话
+  - 最新一版 Release 的清单并入已知哈希；本地文件与历史哈希合并，含 `obsolete`
+  - Release 没有 `fntv-manifest.json`、清单的 `archiveVersion` 不是那版的 tag、缺 `files` 列表时报 `PreviousManifestError`；本地文件缺 `files` 或不是 JSON 时同样报错
+  - 不给参数时只用仓库里的 `manifest-history.json`
 
 #### 1b. test_extract.py - 解压测试
 - **TestExtractArchive**
@@ -110,13 +117,12 @@ tests/
 
 #### 4. test_manifest.py - 归档清单测试
 - **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
-- **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset` 和 `--config`
+- **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset`、`--config`，以及读不出 `--previous-manifest` 时报错退出、不打出 traceback
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
-- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`，命令行 `--result-file` 写出构建结果和 Release 说明
+- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，经假会话取到的上一版 Release 清单的已知哈希进本次清单，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 5. test_package_archive.py - 安装包构建测试
-- **TestKnownHashes**: 合并历史哈希文件与上一版清单，默认读仓库里的 `manifest-history.json`
 - **TestBuildPackageArchive**: 时间戳决定归档版本、zip 名和清单资产位置；已知哈希进清单；契约测试失败抛 `ContractTestFailed`；默认用北京时间，格式错误的时间戳在写任何文件前被拒绝；`is_package_archive_name` 只认自己产出的 zip 名
 
 #### 6. test_package_defaults.py - 发版输入测试
