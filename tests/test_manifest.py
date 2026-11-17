@@ -174,6 +174,22 @@ class TestCheckArchive(unittest.TestCase):
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn("archiveVersion", failed.stdout + failed.stderr)
 
+    def test_command_line_reports_an_unreadable_previous_manifest(self):
+        empty_history = self.tmp / "empty-history.json"
+        empty_history.write_text('{"archives": [], "files": {}}', encoding="utf-8")
+        previous = self.tmp / "previous.json"
+        previous.write_text('{"archiveVersion": "x"}', encoding="utf-8")
+
+        result = subprocess.run(
+            [sys.executable, str(PROJECT_ROOT / "check_archive.py"), str(self.make_zip()),
+             "--history", str(empty_history), "--previous-manifest", str(previous)],
+            capture_output=True, text=True, encoding="utf-8",
+        )
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("缺少 files 列表", result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_command_line_checks_the_release_manifest_asset(self):
         script = str(PROJECT_ROOT / "check_archive.py")
         zip_path = self.make_zip()
@@ -583,11 +599,11 @@ class TestPackagingProducesManifest(unittest.TestCase):
         }), encoding="utf-8")
         return config_path
 
-    def run_packaging(self, **run_kwargs):
+    def run_packaging(self, session=None, **run_kwargs):
         from src.main import MPVConfigManager
 
         run_kwargs.setdefault("history_path", str(self.write_empty_history()))
-        manager = MPVConfigManager(str(self.write_package_config()), "ERROR")
+        manager = MPVConfigManager(str(self.write_package_config()), "ERROR", session=session)
         result = manager.run(package_timestamp="20261114_235959", **run_kwargs)
         return result, self.tmp / "out" / "mpv-package-20261114_235959.zip"
 
@@ -641,6 +657,26 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.assertNotIn("portable_config/danmaku-history.json", names)
         obsolete = [entry["path"] for entry in manifest["obsolete"]]
         self.assertIn("scripts/uosc_danmaku/main.lua", obsolete)
+
+    def test_known_hashes_of_the_latest_release_manifest_are_kept(self):
+        from src.previous_manifest import PreviousRelease
+        from tests.test_download_manager import LATEST_TAG, FakeGithub
+
+        github = FakeGithub({"fntv-manifest.json": json.dumps({
+            "archiveVersion": LATEST_TAG,
+            "files": [{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
+                       "knownHashes": [SHA256_GHI]}],
+            "obsolete": [],
+        }).encode()})
+
+        result, zip_path = self.run_packaging(session=github,
+                                              previous=PreviousRelease("JayYa/fntv-mpv-config"))
+
+        self.assertIsNotNone(result)
+        with zipfile.ZipFile(zip_path) as z:
+            manifest = json.loads(z.read("fntv-manifest.json"))
+        mpv_conf = next(f for f in manifest["files"] if f["path"] == "mpv.conf")
+        self.assertTrue({SHA256_DEF, SHA256_GHI} <= set(mpv_conf["knownHashes"]))
 
     def test_leftovers_from_an_earlier_build_stay_out_of_the_archive(self):
         project_name = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]

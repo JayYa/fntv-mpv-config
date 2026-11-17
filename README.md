@@ -48,6 +48,7 @@ fntv-mpv-config/
 │   ├── dependency_layout.py # 依赖布局：安装目标、入口文件、托管目录和基础配置
 │   ├── dependency_source.py # 依赖来源：把一个依赖变成内容目录
 │   ├── download_manager.py # 从 GitHub Release 选出唯一资产并下载
+│   ├── previous_manifest.py # 上一版清单：从 Release 或本地文件取、校验，并进已知哈希
 │   ├── extract.py         # 按扩展名解压
 │   ├── install_manager.py # 安装管理
 │   ├── log_setup.py       # 日志输出设置
@@ -571,8 +572,9 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件。安装、清单的 `managedDirs` 和契约测试的必需路径都从它来
 4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
 5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
-6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes.load` 读取并合并已知哈希（类定义在 `manifest.py`，从这里导出）
-7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查，只被 `package_archive.py` 使用
+6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口
+7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查
+8. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、校验后合并成已知哈希；拿不到或校验不过时抛 `PreviousManifestError`。`run()` 和 `check_archive.py` 都经它取已知哈希
 
 ### 扩展性
 
@@ -703,7 +705,8 @@ python -m unittest tests.test_download_manager -v
 - ✅ **package_config**: 三种依赖来源、字段校验、相对路径基准、输出目录优先级
 - ✅ **命令行**: `--list`、`--clean`、`--deps` 的输出和退出码
 - ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
-- ✅ **download_manager**: 选资产（精确名优先、唯一前缀、多个或没有时失败）、限流和缺 Release 的报错、按资产大小跳过或重下、下载不完整时失败、代理、`GITHUB_TOKEN` 认证
+- ✅ **download_manager**: 选资产（精确名优先、唯一前缀、多个或没有时失败）、限流和缺 Release 的报错、按资产大小跳过或重下、下载不完整时失败、代理、`GITHUB_TOKEN` 认证、取最新 Release 的指定资产
+- ✅ **previous_manifest**: 从 Release 或本地文件取上一版清单，缺清单、缺 `files`、不属于那版 Release 时失败
 - ✅ **extract**: 格式识别、tar.gz 解压、拒绝越出目标目录的 tar 成员
 - ✅ **InstallManager**: install_to 和自定义规则、模式匹配语义、规则对不上内容目录或两个依赖装同一文件时报错
 - ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程（含上次构建的残留不进安装包）

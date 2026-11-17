@@ -5,19 +5,22 @@
 import argparse
 import logging
 import sys
-import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Tuple
+
+import requests
 
 from .dependency_source import DependencySource
 from .download_manager import DownloadManager
 from .install_manager import InstallManager
 from .log_setup import setup_logging
-from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
-                              remove_package_archives, validate_package_timestamp)
+from .package_archive import (ContractTestFailed, build_package_archive, remove_package_archives,
+                              validate_package_timestamp)
 from .package_config import (ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig,
                              load_package_config)
+from .previous_manifest import (PreviousManifest, PreviousManifestFile, PreviousRelease,
+                                load_known_hashes)
 from .release import BuildResult, Dependency, write_build_result
 
 
@@ -25,17 +28,19 @@ class MPVConfigManager:
     """MPV配置管理器主类"""
 
     def __init__(self, config_path: str = "package_cfg.json", log_level: str = "INFO",
-                 output_dir: Optional[str] = None):
+                 output_dir: Optional[str] = None, session: Optional[requests.Session] = None):
         """
         Args:
             config_path: 配置文件路径
             log_level: 日志级别
             output_dir: 输出目录覆盖值，None 时依次取环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件
+            session: 访问 GitHub 用的 HTTP 会话，None 时新建
         """
         setup_logging(log_level)
         self.logger = logging.getLogger(__name__)
         self.config_path = config_path
         self.output_dir_override = output_dir
+        self.session = session
 
     def run(self, dependencies: Optional[List[str]] = None,
             skip_download: bool = False,
@@ -44,8 +49,7 @@ class MPVConfigManager:
             cleanup: bool = True,
             package_timestamp: Optional[str] = None,
             history_path: Optional[str] = None,
-            previous_manifest_path: Optional[str] = None,
-            previous_release: Optional[str] = None) -> Optional[BuildResult]:
+            previous: Optional[PreviousManifest] = None) -> Optional[BuildResult]:
         """
         运行主流程
 
@@ -59,9 +63,7 @@ class MPVConfigManager:
             cleanup: 是否清理临时文件
             package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用当前北京时间
             history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
-            previous_manifest_path: 上一版清单的本地文件
-            previous_release: 从这个仓库（owner/repo）最新一版 Release 下载上一版清单；
-                与 previous_manifest_path 都是 None 时只用历史哈希
+            previous: 上一版清单从哪来，None 时只用历史哈希
 
         Returns:
             成功时返回构建结果，失败时返回 None
@@ -72,7 +74,8 @@ class MPVConfigManager:
             config = self._load()
             self.logger.info(f"配置加载完成: {config.project_name}")
 
-            source = self._dependency_source(config, offline=skip_download)
+            downloader = DownloadManager(config.github_proxy, config.enable_proxy, session=self.session)
+            source = self._dependency_source(config, offline=skip_download, downloader=downloader)
             installer = self._installer(config)
 
             target_dependencies = _target_dependencies(config, dependencies)
@@ -81,10 +84,7 @@ class MPVConfigManager:
             packaging = create_package and not skip_install
             known = None
             if packaging:
-                if previous_manifest_path:
-                    self.logger.info(f"并入上一版清单: {previous_manifest_path}")
-                known = KnownHashes.load(history_path, previous_manifest_path,
-                                         self._latest_manifest(config, previous_release))
+                known = load_known_hashes(history_path, previous, downloader)
 
             if not skip_install:
                 installer.reset_project_dir()
@@ -167,22 +167,15 @@ class MPVConfigManager:
             for path in remove_package_archives(config.output_dir):
                 self.logger.info(f"已删除文件: {path.name}")
 
-    def _latest_manifest(self, config: PackageConfig, repo_path: Optional[str]) -> Optional[dict]:
-        if not repo_path:
-            return None
-        downloader = DownloadManager(config.github_proxy, config.enable_proxy)
-        with tempfile.TemporaryDirectory() as dest_dir:
-            manifest = downloader.previous_manifest(repo_path, Path(dest_dir))
-        self.logger.info(f"并入上一版清单: {repo_path} {manifest['archiveVersion']}")
-        return manifest
-
     def _load(self) -> PackageConfig:
         return load_package_config(self.config_path, self.output_dir_override)
 
     @staticmethod
-    def _dependency_source(config: PackageConfig, offline: bool = False) -> DependencySource:
+    def _dependency_source(config: PackageConfig, offline: bool = False,
+                           downloader: Optional[DownloadManager] = None) -> DependencySource:
         return DependencySource(config.temp_dir, proxy_url=config.github_proxy,
-                                enable_proxy=config.enable_proxy, offline=offline)
+                                enable_proxy=config.enable_proxy, offline=offline,
+                                downloader=downloader)
 
     @staticmethod
     def _installer(config: PackageConfig) -> InstallManager:
@@ -219,6 +212,14 @@ def _describe(entry: DependencySpec) -> str:
         return f"GitHub Release {source.repo_path}"
     kind = "本地文件夹" if isinstance(source, LocalDir) else "本地压缩包"
     return f"{kind} {source.path}"
+
+
+def _previous_manifest(args: argparse.Namespace) -> Optional[PreviousManifest]:
+    if args.previous_release:
+        return PreviousRelease(args.previous_release)
+    if args.previous_manifest:
+        return PreviousManifestFile(Path(args.previous_manifest))
+    return None
 
 
 def _package_timestamp_arg(value: str) -> str:
@@ -306,7 +307,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     )
     previous.add_argument(
         '--previous-manifest',
-        help='上一版清单的本地文件；它的 knownHashes 和 obsolete 并入本次清单'
+        help='上一版清单的本地文件；它的 knownHashes 和 obsolete 并入本次清单，读不出清单时构建失败'
     )
 
     parser.add_argument(
@@ -379,8 +380,7 @@ def main(argv: Optional[List[str]] = None):
                 cleanup=not args.skip_cleanup,
                 package_timestamp=args.package_timestamp,
                 history_path=args.manifest_history,
-                previous_manifest_path=args.previous_manifest,
-                previous_release=args.previous_release
+                previous=_previous_manifest(args)
             )
 
             if result is None:
