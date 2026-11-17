@@ -46,10 +46,11 @@ fntv-mpv-config/
 │   ├── main.py            # 主程序
 │   ├── package_config.py  # 打包配置：读 package_cfg.json，加载时校验全部字段
 │   ├── dependency_layout.py # 依赖布局：安装目标、入口文件、托管目录和基础配置
-│   ├── download_manager.py # 下载管理
-│   ├── extract_manager.py # 解压管理
+│   ├── dependency_source.py # 依赖来源：把一个依赖变成内容目录
+│   ├── download_manager.py # 从 GitHub Release 选出唯一资产并下载
+│   ├── extract.py         # 按扩展名解压
 │   ├── install_manager.py # 安装管理
-│   ├── log_manager.py     # 日志管理
+│   ├── log_setup.py       # 日志输出设置
 │   ├── package_archive.py # 安装包构建与契约测试的入口
 │   ├── manifest.py        # 清单格式、归属规则、已知哈希和各项契约检查（package_archive 的实现）
 │   └── release.py         # 构建结果 JSON 和 Release 说明
@@ -78,7 +79,7 @@ fntv-mpv-config/
 ### 1. 环境准备
 
 #### 系统要求
-- Python 3（CI 用 3.11）
+- Python 3.11.4 及以上（解压 tar 用到 `filter="data"`；CI 用 3.11）
 - 7-Zip（py7zr 解不开 mpv 的 7z 包时用它）
 - 可访问 GitHub。设置 `GITHUB_TOKEN` 或 `GH_TOKEN` 后，GitHub API 请求带认证，不受匿名每小时 60 次的限额
 
@@ -301,7 +302,7 @@ python run.py --clean all       # 两者都删
 - `managed_dir`: 客户端整体替换的目录（可选），必须在 `portable_config/` 下并包含 `entry`，写进清单的 `managedDirs`
 - `name`、`version`: 所有依赖必填的非空字符串；`name` 是显示名，写进 Release 说明
 - `url` 和 `local_path` 必须且只能写一个，决定依赖来源。`url` 必须是 `https://github.com/<owner>/<repo>/releases`，不能写本地路径
-- `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
+- `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，先找名字等于 `<filename_pattern>.<format>` 的资产，没有时取唯一一个以 `filename_pattern` 开头、以 `.<format>` 结尾的资产。一个都没有、有不止一个，或 API 请求失败（如 403 限流）时构建失败，报错里列出现有资产或 HTTP 状态，不会猜文件名。`filename_pattern` 可含 `{version}` 占位符。`format` 只能是 `zip`、`7z`、`rar`、`tar`、`tar.gz`、`tar.bz2`、`tar.xz`，加载时校验；本地压缩包的扩展名也按这组格式校验。temp 里已有同名、大小与 Release 资产一致的文件时不重复下载
 - `enabled`: 是否打进安装包（可选），布尔值，默认 `true`
 - `version` 也写进清单的 `components`；停用的依赖不写
 
@@ -565,17 +566,17 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 项目采用模块化设计，各模块职责明确：
 
 1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段
-2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 DownloadManager（GitHub Release 下载）和 ExtractManager（多种压缩格式的解压）
+2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 `download_manager.py`（选出唯一的 Release 资产并下载，HTTP 会话可注入）和 `extract.py`（按扩展名解压）
 3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件。安装、清单的 `managedDirs` 和契约测试的必需路径都从它来
 4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
-5. **LogManager**: 统一的日志管理
+5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
 6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口；`KnownHashes.load` 读取并合并已知哈希（类定义在 `manifest.py`，从这里导出）
 7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查，只被 `package_archive.py` 使用
 
 ### 扩展性
 
-- **添加新的下载源**: 在DownloadManager中扩展
-- **支持新的压缩格式**: 在ExtractManager中添加处理器
+- **添加新的依赖来源**: 在 `package_config.py` 加来源类型，在 `DependencySource.fetch` 里处理
+- **支持新的压缩格式**: 在 `extract.py` 的 `_EXTRACTORS` 表里加一项（格式 → 解压函数），`ARCHIVE_FORMATS` 和加载时的校验都从这张表来
 - **自定义安装规则**: 规则的解析和校验在 `dependency_layout.py`，按规则选文件、复制在 `install_manager.py`
 
 ### 调试技巧
@@ -693,7 +694,7 @@ python run_tests.py
 
 ```bash
 # 运行测试文件
-python tests/test_all.py
+python -m unittest tests.test_download_manager -v
 ```
 
 ### 测试覆盖范围
@@ -701,8 +702,8 @@ python tests/test_all.py
 - ✅ **package_config**: 三种依赖来源、字段校验、相对路径基准、输出目录优先级
 - ✅ **命令行**: `--list`、`--clean`、`--deps` 的输出和退出码
 - ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
-- ✅ **DownloadManager**: `GITHUB_TOKEN` 认证
-- ✅ **ExtractManager**: 格式识别
+- ✅ **download_manager**: 选资产（精确名优先、唯一前缀、多个或没有时失败）、限流和缺 Release 的报错、按资产大小跳过或重下、下载不完整时失败、代理、`GITHUB_TOKEN` 认证
+- ✅ **extract**: 格式识别、tar.gz 解压、拒绝越出目标目录的 tar 成员
 - ✅ **InstallManager**: install_to 和自定义规则、模式匹配语义、规则对不上内容目录或两个依赖装同一文件时报错
 - ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程（含上次构建的残留不进安装包）
 - ✅ **package_cfg.json**: 固定的依赖版本和下载地址

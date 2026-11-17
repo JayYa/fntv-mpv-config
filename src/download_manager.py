@@ -1,15 +1,20 @@
 """
-下载管理模块
-负责从 GitHub Release 下载依赖的压缩包
+从 GitHub Release 下载依赖的压缩包
+
+选哪个资产只在这里决定：读 Release 的资产列表，选出唯一的那个，选不出就失败，不猜文件名。
 """
-import os
-import requests
-from typing import Dict
-from pathlib import Path
 import logging
+import os
+from pathlib import Path
+from typing import Dict, List, NamedTuple, Optional
+
+import requests
 from tqdm import tqdm
 
 from .package_config import GithubRelease
+
+API_TIMEOUT = 10
+DOWNLOAD_TIMEOUT = (10, 60)
 
 
 def github_api_headers() -> Dict[str, str]:
@@ -25,208 +30,103 @@ def github_api_headers() -> Dict[str, str]:
 
 
 class DownloadError(Exception):
-    """下载错误异常"""
-    pass
+    """下载失败"""
+
+
+class Asset(NamedTuple):
+    name: str
+    url: str
+    size: int
 
 
 class DownloadManager:
-    """下载管理器"""
-
-    def __init__(self, proxy_url: str = "", enable_proxy: bool = False):
+    def __init__(self, proxy_url: str = "", enable_proxy: bool = False,
+                 session: Optional[requests.Session] = None):
         """
-        初始化下载管理器
-
         Args:
-            proxy_url: GitHub代理地址
+            proxy_url: GitHub 代理地址，只用于下载资产，不用于 API
             enable_proxy: 是否启用代理
+            session: 替换 HTTP 会话（测试用）
         """
-        self.proxy_url = proxy_url.rstrip('/')  # 移除末尾的斜杠
+        self.proxy_url = proxy_url.rstrip('/')
         self.enable_proxy = enable_proxy
-        self.session = requests.Session()
+        self.session = session or requests.Session()
         self.logger = logging.getLogger(__name__)
 
     def download(self, name: str, release: GithubRelease, dest_dir: Path) -> Path:
         """
-        把依赖的压缩包下载到 dest_dir；同名且大小一致的文件已存在时不重复下载
-
-        Returns:
-            下载文件的路径
+        把依赖的压缩包下载到 dest_dir；同名且大小与 Release 资产一致的文件已存在时不重复下载
 
         Raises:
-            DownloadError: 下载失败
+            DownloadError: 读不到 Release、选不出唯一资产、下载失败或大小不符
         """
-        self.logger.info(f"开始下载 {name}")
         try:
-            download_url = self._get_github_release_url(release)
-            file_path = Path(dest_dir) / self._get_filename(release, download_url)
-
-            if file_path.exists() and self._verify_file(file_path, download_url):
-                self.logger.info(f"{name} 文件已存在，跳过下载")
+            asset = select_asset(release, self._release_assets(release))
+            file_path = Path(dest_dir) / asset.name
+            if file_path.is_file() and file_path.stat().st_size == asset.size:
+                self.logger.info(f"{name} 已下载过 {asset.name}，跳过下载")
                 return file_path
-
-            self.logger.info(f"从 {download_url} 下载到 {file_path}")
-            self._download_file(download_url, file_path)
-            self.logger.info(f"{name} 下载完成")
+            url = self._proxied(asset.url)
+            self.logger.info(f"下载 {name}: {url}")
+            self._download_file(url, file_path, asset.size)
             return file_path
-        except DownloadError:
-            raise
-        except Exception as e:
+        except (DownloadError, requests.RequestException, OSError, ValueError, KeyError) as e:
             raise DownloadError(f"下载 {name} 失败: {e}") from e
 
-    def _get_github_release_url(self, release: GithubRelease) -> str:
-        filename = self._get_github_asset_filename(release.owner, release.repo, release.version,
-                                                   release.filename_pattern, release.format)
-        download_url = (f"https://github.com/{release.owner}/{release.repo}"
-                        f"/releases/download/{release.version}/{filename}")
-
-        if self.enable_proxy and self.proxy_url:
-            download_url = f"{self.proxy_url}/{download_url}"
-
-        self.logger.info(f"构建的下载链接: {download_url}")
-        return download_url
-
-    def _get_github_asset_filename(self, owner: str, repo: str, version: str, filename_pattern: str, file_format: str) -> str:
-        """
-        动态获取GitHub Release中匹配的文件名
-
-        Args:
-            owner: 仓库所有者
-            repo: 仓库名
-            version: 版本号
-            filename_pattern: 文件名模式
-            file_format: 文件格式
-
-        Returns:
-            实际的文件名
-        """
-        try:
-            # 构建GitHub API URL来获取release信息
-            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{version}"
-
-            # 如果启用代理，需要直接访问API而不通过代理
-            response = requests.get(api_url, headers=github_api_headers(), timeout=10)
-            response.raise_for_status()
-
-            release_info = response.json()
-            assets = release_info.get('assets', [])
-
-            # 基于filename_pattern查找匹配的文件
-            if '{version}' in filename_pattern:
-                pattern_base = filename_pattern.format(version=version)
-            else:
-                pattern_base = filename_pattern
-
-            # 策略1: 精确匹配完整文件名（包含扩展名）
-            target_filename = f"{pattern_base}.{file_format}"
-            for asset in assets:
-                if asset['name'] == target_filename:
-                    self.logger.info(f"找到精确匹配的文件: {asset['name']}")
-                    return asset['name']
-
-            # 策略2: 匹配模式开头且格式正确的文件
-            for asset in assets:
-                asset_name = asset['name']
-                if asset_name.startswith(pattern_base) and asset_name.endswith(f'.{file_format}'):
-                    self.logger.info(f"找到模式匹配的文件: {asset_name}")
-                    return asset_name
-
-            # 策略3: 更宽松的匹配 - 检查是否包含主要关键词
-            pattern_keywords = pattern_base.replace('-', ' ').replace('_', ' ').split()
-            for asset in assets:
-                asset_name = asset['name']
-                if asset_name.endswith(f'.{file_format}'):
-                    # 检查是否包含所有关键词
-                    asset_lower = asset_name.lower()
-                    if all(keyword.lower() in asset_lower for keyword in pattern_keywords if keyword):
-                        self.logger.info(f"找到关键词匹配的文件: {asset_name}")
-                        return asset_name
-
-            # 策略4: 如果只有一个匹配格式的文件，就使用它
-            matching_format_assets = [asset for asset in assets if asset['name'].endswith(f'.{file_format}')]
-            if len(matching_format_assets) == 1:
-                self.logger.info(f"找到唯一格式匹配的文件: {matching_format_assets[0]['name']}")
-                return matching_format_assets[0]['name']
-
-            # 如果都没找到，使用默认命名
-            self.logger.warning(f"未找到匹配的文件，使用默认命名: {target_filename}")
-            return target_filename
-
-        except Exception as e:
-            self.logger.warning(f"获取GitHub文件名失败: {e}，使用默认命名")
-            # 降级到基本命名
-            if '{version}' in filename_pattern:
-                base_name = filename_pattern.format(version=version)
-            else:
-                base_name = filename_pattern
-            return f"{base_name}.{file_format}"
-
-    def _get_filename(self, release: GithubRelease, download_url: str) -> str:
-        filename = download_url.split('/')[-1]
-        if not filename.endswith(f".{release.format}"):
-            filename = f"{release.filename_pattern}.{release.format}"
-        return filename
-
-    def _verify_file(self, file_path: Path, download_url: str) -> bool:
-        """
-        验证文件是否有效
-
-        Args:
-            file_path: 文件路径
-            download_url: 下载URL
-
-        Returns:
-            是否有效
-        """
-        try:
-            # 简单的大小验证
-            response = self.session.head(download_url)
-            remote_size = int(response.headers.get('content-length', 0))
-            local_size = file_path.stat().st_size
-
-            return remote_size == 0 or local_size == remote_size
-        except:
-            return False
-
-    def _download_file(self, url: str, file_path: Path, chunk_size: int = 8192):
-        """
-        下载文件
-
-        Args:
-            url: 下载URL
-            file_path: 保存路径
-            chunk_size: 块大小
-        """
-        response = self.session.get(url, stream=True)
+    def _release_assets(self, release: GithubRelease) -> List[Asset]:
+        api_url = f"https://api.github.com/repos/{release.repo_path}/releases/tags/{release.version}"
+        response = self.session.get(api_url, headers=github_api_headers(), timeout=API_TIMEOUT)
+        if response.status_code in (403, 429):
+            raise DownloadError(f"GitHub API 拒绝请求（HTTP {response.status_code}），多半是限流；"
+                                f"设置 GITHUB_TOKEN 后重试: {api_url}")
+        if response.status_code == 404:
+            raise DownloadError(f"{release.repo_path} 没有 tag 为 {release.version} 的 Release")
         response.raise_for_status()
+        return [Asset(a["name"], a["browser_download_url"], a["size"])
+                for a in response.json().get("assets", [])]
 
-        total_size = int(response.headers.get('content-length', 0))
+    def _proxied(self, url: str) -> str:
+        if self.enable_proxy and self.proxy_url:
+            return f"{self.proxy_url}/{url}"
+        return url
 
-        # 创建进度条
-        # 优化进度条显示，增强兼容性
-        progress_bar = tqdm(
-            total=total_size,
-            unit='B',
-            unit_scale=True,
-            unit_divisor=1024,
-            desc=file_path.name,
-            disable=total_size == 0,  # 如果无法获取总大小，禁用进度条
-            ascii=False,  # 使用Unicode字符以更好显示
-            ncols=100,  # 增加宽度以更好显示
-            bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'
-        )
-
+    def _download_file(self, url: str, file_path: Path, expected_size: int):
+        """先写到 .part，大小对上再改名，中断的下载不会被当成已下载"""
+        partial = file_path.with_name(file_path.name + ".part")
         try:
-            with open(file_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        progress_bar.update(len(chunk))
+            response = self.session.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT)
+            response.raise_for_status()
+            with open(partial, 'wb') as f, tqdm(total=expected_size, unit='B', unit_scale=True,
+                                                unit_divisor=1024, desc=file_path.name, ncols=100) as progress:
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    f.write(chunk)
+                    progress.update(len(chunk))
+            written = partial.stat().st_size
+            if written != expected_size:
+                raise DownloadError(f"{file_path.name} 下载了 {written} 字节，Release 上是 {expected_size} 字节")
+            partial.replace(file_path)
         finally:
-            progress_bar.close()
+            partial.unlink(missing_ok=True)
 
-        # 下载完成后记录日志
-        if total_size > 0:
-            self.logger.info(f"下载完成: {file_path.name} ({total_size / 1024 / 1024:.1f} MB)")
-        else:
-            self.logger.info(f"下载完成: {file_path.name}")
 
+def select_asset(release: GithubRelease, assets: List[Asset]) -> Asset:
+    """
+    名字等于 <filename_pattern>.<format> 的资产优先；没有时取唯一以 filename_pattern 开头、
+    以 .<format> 结尾的资产。filename_pattern 里的 {version} 换成 version。
+
+    Raises:
+        DownloadError: 没有匹配的资产，或匹配的不止一个
+    """
+    base, suffix = release.asset_prefix, release.archive_suffix
+    for asset in assets:
+        if asset.name == base + suffix:
+            return asset
+    matches = [a for a in assets if a.name.startswith(base) and a.name.endswith(suffix)]
+    if len(matches) == 1:
+        return matches[0]
+    where = f"{release.repo_path} {release.version}"
+    if matches:
+        raise DownloadError(f"{where} 里有 {len(matches)} 个资产匹配 {base}*{suffix}，"
+                            f"请把 filename_pattern 写得更具体: {[a.name for a in matches]}")
+    raise DownloadError(f"{where} 里没有匹配 {base}*{suffix} 的资产，"
+                        f"现有资产: {[a.name for a in assets]}")

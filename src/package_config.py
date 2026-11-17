@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
 from .dependency_layout import LAYOUT_KEYS, DependencyLayout, LayoutError, load_layout
+from .extract import ARCHIVE_FORMATS, ARCHIVE_FORMATS_TEXT, archive_format
 
 OUTPUT_DIR_ENV = "FNTV_MPV_OUTPUT_DIR"
 
@@ -24,6 +25,18 @@ class GithubRelease:
     version: str
     filename_pattern: str
     format: str
+
+    @property
+    def repo_path(self) -> str:
+        return f"{self.owner}/{self.repo}"
+
+    @property
+    def asset_prefix(self) -> str:
+        return self.filename_pattern.replace("{version}", self.version)
+
+    @property
+    def archive_suffix(self) -> str:
+        return f".{self.format}"
 
 
 @dataclass(frozen=True)
@@ -162,6 +175,9 @@ def _local_source(name: str, dep: Mapping[str, Any], base_dir: Path) -> Source:
     if path.is_dir():
         return LocalDir(path)
     if path.is_file():
+        if archive_format(path) is None:
+            raise ConfigError(f"依赖 {name} 的 local_path 不是支持的压缩包"
+                              f"（{ARCHIVE_FORMATS_TEXT}）: {path}")
         return LocalArchive(path)
     raise ConfigError(f"依赖 {name} 的 local_path 不存在: {path}")
 
@@ -174,9 +190,11 @@ def _github_release(name: str, dep: Mapping[str, Any]) -> GithubRelease:
         raise ConfigError(f"{where} 的 url 必须是 GitHub Release 页面 "
                           f"https://github.com/<owner>/<repo>/releases；本地包请写 local_path: {url}")
     owner, repo = match.groups()
+    archive_fmt = _text(where, dep, "format")
+    if archive_fmt not in ARCHIVE_FORMATS:
+        raise ConfigError(f"{where} 的 format 只能是 {ARCHIVE_FORMATS_TEXT}: {archive_fmt!r}")
     return GithubRelease(owner=owner, repo=repo, version=_text(where, dep, "version"),
-                         filename_pattern=_text(where, dep, "filename_pattern"),
-                         format=_text(where, dep, "format"))
+                         filename_pattern=_text(where, dep, "filename_pattern"), format=archive_fmt)
 
 
 def _reject_unknown_keys(where: str, value: Mapping[str, Any], allowed: set):

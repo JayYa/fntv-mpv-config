@@ -3,6 +3,7 @@
 协调各个模块的工作，提供命令行界面
 """
 import argparse
+import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 
 from .dependency_source import DependencySource
 from .install_manager import InstallManager
-from .log_manager import LogManager
+from .log_setup import setup_logging
 from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                               remove_package_archives, validate_package_timestamp)
 from .package_config import (ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig,
@@ -29,8 +30,8 @@ class MPVConfigManager:
             log_level: 日志级别
             output_dir: 输出目录覆盖值，None 时依次取环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件
         """
-        self.log_manager = LogManager(log_level)
-        self.logger = self.log_manager.get_logger(__name__)
+        setup_logging(log_level)
+        self.logger = logging.getLogger(__name__)
         self.config_path = config_path
         self.output_dir_override = output_dir
 
@@ -196,7 +197,7 @@ def _release_dependencies(dependencies: Mapping[str, DependencySpec]) -> Tuple[D
 def _describe(entry: DependencySpec) -> str:
     source = entry.source
     if isinstance(source, GithubRelease):
-        return f"GitHub Release {source.owner}/{source.repo}"
+        return f"GitHub Release {source.repo_path}"
     kind = "本地文件夹" if isinstance(source, LocalDir) else "本地压缩包"
     return f"{kind} {source.path}"
 

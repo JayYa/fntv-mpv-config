@@ -8,7 +8,8 @@
 
 ```
 tests/
-├── test_all.py          # 下载器与解压器的基础测试
+├── test_download_manager.py # 下载器：select_asset 直接用资产列表测，HTTP 行为经 download() 和假的会话测
+├── test_extract.py      # 解压：格式识别、tar 解压和越界成员
 ├── test_package_config.py # 打包配置：经 load_package_config 测三种依赖来源和字段校验
 ├── test_main.py         # 命令行：经 main(argv) 测 --list、--clean、--deps 的输出和退出码
 ├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
@@ -21,7 +22,7 @@ tests/
 ├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）和 --result-file 参数
 ```
 
-测试都不访问网络，GitHub API 调用用 `unittest.mock` 替换。
+测试都不访问网络：下载器的测试给 `DownloadManager` 注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
 
 `test_manifest.py` 覆盖清单生成（`build_manifest`）、经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑的契约测试，以及两个跑完整 `run()` 的端到端测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 
@@ -31,7 +32,7 @@ tests/
 - **TestLoadPackageConfig**: 全部经 `load_package_config` 测
   - GitHub Release、本地文件夹、本地压缩包三种来源；`local_path` 和 `config` 里的路径按配置文件所在目录解析
   - `enabled` 默认 `true`；停用的依赖（含 mpv）留在 `dependencies` 里，不进依赖布局，入口文件不再必需；停用的依赖照样校验，`enabled` 不是布尔值也报错
-  - 不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format` 都报 `ConfigError`
+  - 不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format`、`format` 不是支持的压缩格式、本地压缩包的扩展名不认识都报 `ConfigError`
   - 顶层和 `config` 块的多余字段、缺必填项、`enable_proxy` 不是布尔值、文件不存在或不是 JSON 对象都报错；依赖布局的错误也作为 `ConfigError` 抛出
   - 输出目录优先级：`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`，空环境变量视为未设置
   - 仓库的 `package_cfg.json` 能加载
@@ -42,13 +43,21 @@ tests/
   - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
   - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 
-#### 1. test_all.py - 基础功能测试
-- **TestDownloadManager**: 下载管理器测试
-  - `test_github_api_uses_token_when_set`: 设了 `GITHUB_TOKEN` 时 API 请求带认证头
-  - `test_github_api_anonymous_without_token`: 没设时匿名请求
+#### 1. test_download_manager.py - 下载器测试
+- **TestSelectAsset**: 直接拿资产列表调 `select_asset`
+  - 名字等于 `<filename_pattern>.<format>` 的资产优先；没有时取唯一的前缀匹配
+  - 前缀匹配不止一个、或一个都没有时报 `DownloadError`，报错里列出资产名
+- **TestDownloadManager**: 经 `DownloadManager.download` 测，注入假的 HTTP 会话
+  - 下载选中的资产；没有匹配的资产时不下载任何文件
+  - API 返回 403 时报限流，返回 404 时报没有这个 Release，都不猜文件名
+  - 已有文件大小等于资产大小时不重下，大小不同时重下
+  - 下载的字节数和资产大小对不上、或连接中途断开时报错，不留下文件
+  - 代理只加在资产下载地址上，不加在 API 上；设了 `GITHUB_TOKEN` 时 API 请求带认证头，没设时匿名
 
-- **TestExtractManager**: 解压管理器测试
-  - `test_get_format`: 测试文件格式识别
+#### 1b. test_extract.py - 解压测试
+- **TestExtractArchive**
+  - 按扩展名认出格式（含 `.tar.gz`），认不出的返回 None，解压时报 `ExtractError`
+  - tar.gz 能解压；成员路径越出目标目录时报 `ExtractError`，不写出文件
 
 #### 2. test_dependency_source.py - 依赖来源测试
 - **TestDependencySource**: 全部经 `DependencySource.fetch` / `clean` 测，下载器用 mock 替换
@@ -143,8 +152,8 @@ python run_tests.py
 
 ### 运行特定测试模块
 ```bash
-# 基础功能测试
-python tests/test_all.py
+# 下载器测试
+python -m unittest tests.test_download_manager
 
 # 依赖来源测试（导入 src 包，从仓库根目录用 -m 运行）
 python -m unittest tests.test_dependency_source
@@ -178,8 +187,7 @@ class TestNewFeature(unittest.TestCase):
 ```
 运行MPV配置管理工具测试...
 ==================================================
-test_get_format (tests.test_all.TestExtractManager)
-测试格式识别 ... ok
+test_formats_are_recognised_by_extension (tests.test_extract.TestExtractArchive) ... ok
 ...
 test_default_installation (tests.test_install_core.TestInstallManagerCore)
 测试默认安装功能 ... ok

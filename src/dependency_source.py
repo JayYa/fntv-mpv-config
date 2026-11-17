@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from .download_manager import DownloadManager
-from .extract_manager import ExtractManager
+from .extract import extract_archive
 from .package_config import GithubRelease, LocalDir, Source
 
 CONTENT_DIRNAME = "content"
@@ -38,7 +38,6 @@ class DependencySource:
         self.enable_proxy = enable_proxy
         self.offline = offline
         self._downloader = downloader
-        self.extractor = ExtractManager()
         self.logger = logging.getLogger(__name__)
 
     def fetch(self, name: str, source: Source) -> Path:
@@ -86,7 +85,7 @@ class DependencySource:
 
     def _cached_archive(self, name: str, release: GithubRelease) -> Path:
         archive_dir = self._archive_dir(name)
-        suffix = f".{release.format}"
+        suffix = release.archive_suffix
         cached = sorted(p for p in archive_dir.glob(f"*{suffix}") if p.is_file()) \
             if archive_dir.is_dir() else []
         if len(cached) != 1:
@@ -100,5 +99,12 @@ class DependencySource:
         content_dir = self._archive_dir(name) / CONTENT_DIRNAME
         if content_dir.exists():
             shutil.rmtree(content_dir)
-        self.extractor.extract_archive(archive, content_dir)
-        return self.extractor.find_content_dir(content_dir)
+        extract_archive(archive, content_dir)
+        return _without_single_root(content_dir)
+
+
+def _without_single_root(unpacked_dir: Path) -> Path:
+    entries = list(unpacked_dir.iterdir())
+    if len(entries) == 1 and entries[0].is_dir():
+        return entries[0]
+    return unpacked_dir
