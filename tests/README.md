@@ -11,7 +11,7 @@ tests/
 ├── test_download_manager.py # 下载器：select_asset 直接用资产列表测，HTTP 行为经 download() 和假的会话测
 ├── test_extract.py      # 解压：格式识别、tar 解压和越界成员
 ├── test_package_config.py # 打包配置：经 load_package_config 测三种依赖来源和字段校验
-├── test_main.py         # 命令行：经 main(argv) 测 --list、--clean、--deps 的输出和退出码
+├── test_main.py         # 命令行：参数校验，以及经 main(argv) 测 --list、--clean、--deps 的输出和退出码
 ├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
@@ -19,7 +19,7 @@ tests/
 ├── test_package_archive.py # 安装包构建：已知哈希、打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
-├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）和 --result-file 参数
+├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）
 ```
 
 测试都不访问网络：下载器的测试给 `DownloadManager` 注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
@@ -38,6 +38,10 @@ tests/
   - 仓库的 `package_cfg.json` 能加载
 
 #### 0b. test_main.py - 命令行测试
+- **TestParseArgs**: 经 `parse_args` 测
+  - `--package-timestamp` 格式不对时退出
+  - `--result-file` 不能和 `--skip-package` / `--skip-install` 一起用
+  - `--deps` 只装一部分依赖，必须同时带 `--skip-package` 或 `--skip-install`
 - **TestCommandLine**: 经 `main(argv)` 测
   - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
   - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
@@ -95,7 +99,6 @@ tests/
   - `test_two_dependencies_installing_the_same_file_fail_the_install`: 两个依赖装同一个文件时报 `InstallError`
   - `test_paths_that_differ_only_in_case_are_the_same_file`: 只差大小写的路径算同一个文件
   - `test_custom_config_may_replace_a_file_the_dependency_ships`: `custom_config/<依赖名>/` 可以替换依赖自带的文件
-- **TestPackageTimestampCli**: `--package-timestamp` 参数的解析和校验
 - **TestRepositoryCustomConfig**: 用仓库里真实的 `package_cfg.json` 和 `custom_config` 测试
   - 不装任何依赖时基础配置 `custom_config/base/` 也装进 `portable_config/`
   - `custom_config/uosc_danmaku/` 下的文件装进 `portable_config/`

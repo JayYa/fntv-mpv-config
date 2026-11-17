@@ -6,7 +6,36 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from src.main import main
+from src.main import create_cli_parser, main, parse_args
+
+
+class TestParseArgs(unittest.TestCase):
+    def parse(self, argv):
+        return parse_args(create_cli_parser(), argv)
+
+    def assert_exits(self, argv):
+        with mock.patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit):
+                self.parse(argv)
+
+    def test_package_timestamp_is_checked_while_parsing(self):
+        self.assertEqual(self.parse(["--package-timestamp", "20261110_224319"]).package_timestamp,
+                         "20261110_224319")
+        self.assertIsNone(self.parse([]).package_timestamp)
+        self.assert_exits(["--package-timestamp", "2026-11-10"])
+
+    def test_result_file_needs_a_package(self):
+        self.assertEqual(self.parse(["--result-file", "r.json"]).result_file, "r.json")
+        self.assertIsNone(self.parse([]).result_file)
+        for skip in ["--skip-package", "--skip-install"]:
+            with self.subTest(skip=skip):
+                self.assert_exits(["--result-file", "r.json", skip])
+
+    def test_deps_subset_cannot_be_packaged(self):
+        self.assert_exits(["--deps", "uosc"])
+        for skip in ["--skip-package", "--skip-install"]:
+            with self.subTest(skip=skip):
+                self.assertEqual(self.parse(["--deps", "uosc", skip]).deps, ["uosc"])
 
 
 class TestCommandLine(unittest.TestCase):

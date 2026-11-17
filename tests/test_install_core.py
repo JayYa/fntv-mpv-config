@@ -8,8 +8,6 @@ import tempfile
 import shutil
 from pathlib import Path
 import sys
-import io
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -224,25 +222,6 @@ class TestInstallManagerCore(unittest.TestCase):
 
         installed = self.install_manager.portable_config_dir / "scripts" / "test_plugin" / "main.lua"
         self.assertEqual(installed.read_text(), "-- customised")
-
-
-class TestPackageTimestampCli(unittest.TestCase):
-    """--package-timestamp 在解析参数时就校验"""
-
-    def test_valid_timestamp_parsed(self):
-        from src.main import create_cli_parser
-        args = create_cli_parser().parse_args(["--package-timestamp", "20261110_224319"])
-        self.assertEqual(args.package_timestamp, "20261110_224319")
-
-    def test_timestamp_defaults_to_none(self):
-        from src.main import create_cli_parser
-        self.assertIsNone(create_cli_parser().parse_args([]).package_timestamp)
-
-    def test_malformed_timestamp_exits(self):
-        from src.main import create_cli_parser
-        with mock.patch("sys.stderr", new_callable=io.StringIO):
-            with self.assertRaises(SystemExit):
-                create_cli_parser().parse_args(["--package-timestamp", "2026-11-10"])
 
 
 class TestRepositoryCustomConfig(unittest.TestCase):
