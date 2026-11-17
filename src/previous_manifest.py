@@ -1,4 +1,3 @@
-"""上一版清单（previous manifest）：从哪取、怎么校验、怎么并进已知哈希"""
 import json
 import logging
 import tempfile
@@ -17,7 +16,6 @@ class PreviousRelease(NamedTuple):
 
 
 class PreviousManifestFile(NamedTuple):
-    """读本地的清单文件"""
     path: Path
 
 
@@ -25,7 +23,7 @@ PreviousManifest = Union[PreviousRelease, PreviousManifestFile]
 
 
 class PreviousManifestError(Exception):
-    """指定了上一版清单却拿不到，或拿到的不是这版 Release 的清单"""
+    pass
 
 
 def load_known_hashes(history_path: Optional[Path] = None,
