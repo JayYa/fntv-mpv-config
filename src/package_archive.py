@@ -6,14 +6,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from .contract_test import contract_test
 from .dependency_layout import DependencyLayout
-from .manifest import (MANIFEST_NAME, PORTABLE_CONFIG, KnownHashes, build_manifest,
-                       check_archive, check_manifest_asset, write_manifest)
+from .manifest import MANIFEST_NAME, PORTABLE_CONFIG, KnownHashes, build_manifest, write_manifest
 
 __all__ = [
     "ContractTestFailed", "KnownHashes", "PackageArchive", "build_package_archive",
-    "contract_test", "is_package_archive_name", "remove_package_archives",
-    "validate_package_timestamp",
+    "is_package_archive_name", "remove_package_archives", "validate_package_timestamp",
 ]
 
 TIMESTAMP_REGEX = r"\d{8}_\d{6}"
@@ -111,27 +110,3 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
         raise ContractTestFailed(errors)
     return PackageArchive(path=zip_path, manifest_asset_path=asset_path,
                           archive_version=archive_version, timestamp=timestamp)
-
-
-def contract_test(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
-                  archive_version: Optional[str] = None,
-                  manifest_asset: Optional[Path] = None) -> List[str]:
-    """
-    契约测试：安装包与其中的清单一致、满足客户端依赖、已知哈希只增不减
-
-    Args:
-        zip_path: 安装包路径
-        known: 已知哈希
-        layout: 依赖布局，给出必须有的入口文件、基础配置和托管目录
-        archive_version: 期望的归档版本（本次 Release tag），None 时不检查
-        manifest_asset: Release 单独上传的清单资产，必须与 zip 里的逐字节相同；None 时不检查
-
-    Returns:
-        错误列表，空列表表示通过
-    """
-    errors = check_archive(Path(zip_path), required_paths=layout.required_paths,
-                           managed_dirs=layout.manifest_managed_dirs,
-                           archive_version=archive_version, known=known)
-    if manifest_asset is not None:
-        errors += check_manifest_asset(Path(zip_path), Path(manifest_asset))
-    return errors
