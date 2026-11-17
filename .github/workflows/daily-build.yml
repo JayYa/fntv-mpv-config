@@ -74,7 +74,6 @@ jobs:
         tag_name: ${{ fromJSON(steps.build.outputs.RESULT).archiveVersion }}
         name: ${{ fromJSON(steps.build.outputs.RESULT).releaseTitle }}
         body_path: ${{ fromJSON(steps.build.outputs.RESULT).releaseNotesPath }}
-        # fntv-manifest.json 也单独上传（与 zip 根目录里的相同），供下一次构建并入历史哈希
         files: |
           ${{ fromJSON(steps.build.outputs.RESULT).packagePath }}
           ${{ fromJSON(steps.build.outputs.RESULT).manifestAssetPath }}
