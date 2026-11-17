@@ -7,7 +7,7 @@ from pathlib import Path
 from src.download_manager import DownloadManager
 from src.previous_manifest import (PreviousManifestError, PreviousManifestFile, PreviousRelease,
                                    load_known_hashes)
-from tests.test_download_manager import LATEST_TAG, FakeGithub
+from tests.test_download_manager import API, LATEST_TAG, FakeGithub
 from tests.test_manifest import SHA256_ABC, SHA256_DEF, SHA256_GHI
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -44,7 +44,7 @@ class TestLoadKnownHashes(unittest.TestCase):
         known = self.from_release(github)
 
         self.assertEqual(known.of("mpv.conf"), {SHA256_DEF, SHA256_GHI})
-        self.assertEqual(github.calls[0][0], f"https://api.github.com/repos/{REPO}/releases/latest")
+        self.assertEqual(github.calls[0][0], f"{API}{REPO}/releases/latest")
 
     def test_a_latest_release_without_a_manifest_fails(self):
         github = FakeGithub({"mpv-package-20261115_010807.zip": b"zip"})

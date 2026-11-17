@@ -17,6 +17,7 @@ class PreviousRelease(NamedTuple):
 
 
 class PreviousManifestFile(NamedTuple):
+    """读本地的清单文件"""
     path: Path
 
 
@@ -36,7 +37,7 @@ def load_known_hashes(history_path: Optional[Path] = None,
     Args:
         history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
         previous: 上一版清单从哪来，None 时只用历史哈希
-        downloader: 从 Release 取清单用的下载器，None 时按默认设置创建
+        downloader: 从 Release 取清单用的下载器，None 时新建一个不走代理的
 
     Raises:
         PreviousManifestError: 读不到上一版清单、它缺少 files 列表，或它不属于那版 Release
@@ -48,7 +49,7 @@ def load_known_hashes(history_path: Optional[Path] = None,
         if isinstance(previous, PreviousRelease):
             manifest = _from_release(previous.repo_path, downloader or DownloadManager())
         else:
-            manifest = _from_file(Path(previous.path))
+            manifest = _from_file(previous.path)
     except (DownloadError, OSError, ValueError) as e:
         raise PreviousManifestError(f"读取上一版清单失败: {e}") from e
     return KnownHashes.merge(history, manifest)
@@ -56,12 +57,12 @@ def load_known_hashes(history_path: Optional[Path] = None,
 
 def _from_release(repo_path: str, downloader: DownloadManager) -> dict:
     with tempfile.TemporaryDirectory() as dest_dir:
-        tag, path = downloader.latest_release_asset(repo_path, MANIFEST_NAME, Path(dest_dir))
-        where = f"{repo_path} 的 Release {tag} 里的 {MANIFEST_NAME}"
-        manifest = _parse(path, where)
-    if manifest.get("archiveVersion") != tag:
-        raise PreviousManifestError(f"{where} 属于 {manifest.get('archiveVersion')}，不是这个 Release")
-    logger.info(f"并入上一版清单: {repo_path} {tag}")
+        asset = downloader.latest_release_asset(repo_path, MANIFEST_NAME, Path(dest_dir))
+        where = f"{repo_path} 的 Release {asset.tag} 里的 {MANIFEST_NAME}"
+        manifest = _parse(asset.path, where)
+    if manifest.get("archiveVersion") != asset.tag:
+        raise ValueError(f"{where} 属于 {manifest.get('archiveVersion')}，不是这个 Release")
+    logger.info(f"并入上一版清单: {repo_path} {asset.tag}")
     return manifest
 
 
@@ -74,5 +75,5 @@ def _from_file(path: Path) -> dict:
 def _parse(path: Path, where: str) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict) or not isinstance(manifest.get("files"), list):
-        raise PreviousManifestError(f"{where} 缺少 files 列表")
+        raise ValueError(f"{where} 缺少 files 列表")
     return manifest

@@ -307,7 +307,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     )
     previous.add_argument(
         '--previous-manifest',
-        help='上一版清单的本地文件；它的 knownHashes 和 obsolete 并入本次清单'
+        help='上一版清单的本地文件；它的 knownHashes 和 obsolete 并入本次清单，读不出清单时构建失败'
     )
 
     parser.add_argument(

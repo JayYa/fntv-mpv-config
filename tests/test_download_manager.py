@@ -200,11 +200,11 @@ class TestLatestReleaseAsset(unittest.TestCase):
     def test_the_named_asset_of_the_latest_release_is_downloaded_with_its_tag(self):
         github = FakeGithub({"pkg.zip": b"zip", "notes.txt": b"hello"})
 
-        tag, path = self.latest(github)
+        asset = self.latest(github)
 
-        self.assertEqual(tag, LATEST_TAG)
-        self.assertEqual(path, self.dest / "notes.txt")
-        self.assertEqual(path.read_bytes(), b"hello")
+        self.assertEqual(asset.tag, LATEST_TAG)
+        self.assertEqual(asset.path, self.dest / "notes.txt")
+        self.assertEqual(asset.path.read_bytes(), b"hello")
         self.assertEqual(github.calls[0][0], API + "o/r/releases/latest")
 
     def test_a_latest_release_without_the_asset_fails_without_downloading(self):

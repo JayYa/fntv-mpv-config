@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional
 
 import requests
 from tqdm import tqdm
@@ -34,6 +34,11 @@ class Asset(NamedTuple):
     size: int
 
 
+class DownloadedAsset(NamedTuple):
+    tag: str
+    path: Path
+
+
 class DownloadManager:
     def __init__(self, asset_proxy_url: str = "", enable_proxy: bool = False,
                  session: Optional[requests.Session] = None):
@@ -62,12 +67,9 @@ class DownloadManager:
         except (DownloadError, requests.RequestException, OSError, ValueError, KeyError) as e:
             raise DownloadError(f"下载 {name} 失败: {e}") from e
 
-    def latest_release_asset(self, repo_path: str, asset_name: str, dest_dir: Path) -> Tuple[str, Path]:
+    def latest_release_asset(self, repo_path: str, asset_name: str, dest_dir: Path) -> DownloadedAsset:
         """
-        把 repo_path 最新一版 Release 里名为 asset_name 的资产下载到 dest_dir
-
-        Returns:
-            (Release 的 tag, 下载到的文件)
+        把 repo_path 最新一版 Release 里名为 asset_name 的资产下载到 dest_dir，返回那版的 tag 和文件
 
         Raises:
             DownloadError: 读不到 Release、它没有这个资产、下载失败或大小不符
@@ -81,7 +83,7 @@ class DownloadManager:
             file_path = Path(dest_dir) / asset_name
             Path(dest_dir).mkdir(parents=True, exist_ok=True)
             self._download_file(self._proxied(asset.url), file_path, asset.size)
-            return tag, file_path
+            return DownloadedAsset(tag, file_path)
         except DownloadError:
             raise
         except (requests.RequestException, OSError, ValueError, KeyError) as e:
