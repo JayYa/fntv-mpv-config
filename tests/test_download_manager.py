@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import tempfile
@@ -15,6 +16,7 @@ MPV = GithubRelease(owner="shinchiro", repo="mpv-winbuild-cmake", version="20261
 UOSC = GithubRelease(owner="tomasklaen", repo="uosc", version="5.13.0",
                      filename_pattern="uosc", format="zip")
 API = "https://api.github.com/repos/"
+LATEST_TAG = "fntv-mpv-v20261115_010807"
 
 
 class FakeResponse:
@@ -51,7 +53,9 @@ class FakeGithub:
             if self.api_status != 200:
                 return FakeResponse(self.api_status)
             tag = url.rsplit("/", 1)[1]
-            return FakeResponse(json_data={"assets": [
+            if tag == "latest":
+                tag = LATEST_TAG
+            return FakeResponse(json_data={"tag_name": tag, "assets": [
                 {"name": name, "size": len(body),
                  "browser_download_url": f"https://github.com/o/r/releases/download/{tag}/{name}"}
                 for name, body in self.files.items()]})
@@ -182,6 +186,44 @@ class TestDownloadManager(unittest.TestCase):
             self.download(github, UOSC)
 
         self.assertNotIn("Authorization", github.calls[0][1]["headers"])
+
+
+def manifest_bytes(archive_version=LATEST_TAG, files=()):
+    return json.dumps({"archiveVersion": archive_version, "files": list(files)}).encode()
+
+
+class TestPreviousManifest(unittest.TestCase):
+    def setUp(self):
+        self.dest = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.dest, ignore_errors=True)
+
+    def previous_manifest(self, github):
+        return DownloadManager(session=github).previous_manifest("JayYa/fntv-mpv-config", self.dest)
+
+    def test_the_manifest_of_the_latest_release_is_returned(self):
+        entry = {"path": "mpv.conf", "sha256": "ab", "role": "config"}
+        github = FakeGithub({"mpv-package-20261115_010807.zip": b"zip",
+                             "fntv-manifest.json": manifest_bytes(files=[entry])})
+
+        manifest = self.previous_manifest(github)
+
+        self.assertEqual(manifest["files"], [entry])
+        self.assertEqual(github.calls[0][0], API + "JayYa/fntv-mpv-config/releases/latest")
+
+    def test_a_latest_release_without_a_manifest_fails(self):
+        github = FakeGithub({"mpv-package-20261115_010807.zip": b"zip"})
+
+        with self.assertRaisesRegex(DownloadError, "没有 fntv-manifest.json"):
+            self.previous_manifest(github)
+        self.assertEqual(github.downloads(), [])
+
+    def test_a_manifest_of_another_archive_version_fails(self):
+        github = FakeGithub({"fntv-manifest.json": manifest_bytes("fntv-mpv-v20261101_000000")})
+
+        with self.assertRaisesRegex(DownloadError, "fntv-mpv-v20261101_000000"):
+            self.previous_manifest(github)
 
 
 if __name__ == "__main__":

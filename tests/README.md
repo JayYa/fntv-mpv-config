@@ -42,6 +42,7 @@ tests/
   - `--package-timestamp` 格式不对时退出
   - `--result-file` 不能和 `--skip-package` / `--skip-install` 一起用
   - `--deps` 只装一部分依赖，必须同时带 `--skip-package` 或 `--skip-install`
+  - `--previous-release` 和 `--previous-manifest` 只能给一个
 - **TestCommandLine**: 经 `main(argv)` 测
   - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
   - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
@@ -57,6 +58,9 @@ tests/
   - 已有文件大小等于资产大小时不重下，大小不同时重下
   - 下载的字节数和资产大小对不上、或连接中途断开时报错，不留下文件
   - 代理只加在资产下载地址上，不加在 API 上；设了 `GITHUB_TOKEN` 时 API 请求带认证头，没设时匿名
+- **TestPreviousManifest**: 经 `DownloadManager.previous_manifest` 测，注入假的 HTTP 会话
+  - 返回最新一版 Release 附带的清单
+  - 那版 Release 没有 `fntv-manifest.json` 时报错，不下载；清单的 `archiveVersion` 不是那版的 tag 时报错
 
 #### 1b. test_extract.py - 解压测试
 - **TestExtractArchive**

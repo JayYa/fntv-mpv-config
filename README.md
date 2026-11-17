@@ -159,8 +159,9 @@ python run.py --package-timestamp 20261115_120000
 # 打包成功后写出构建结果 JSON，同目录生成 release-notes.md（CI 用；预览说明也可用）
 python run.py --result-file ./build/build-result.json
 
-# 并入上一版 Release 的清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
-python run.py --previous-manifest ./fntv-manifest.json
+# 并入上一版清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
+python run.py --previous-release JayYa/fntv-mpv-config   # 下载该仓库最新一版 Release 的清单，拿不到就失败（CI 用）
+python run.py --previous-manifest ./fntv-manifest.json   # 或用本地文件；两者只能选一个
 
 # 使用本地包文件
 python run.py --deps local_plugin --skip-package  # 配置文件中指定了local_path的依赖项
@@ -486,8 +487,8 @@ custom_config/
 
 - 使用Windows环境进行构建，产出的同一个 zip 供三个平台使用
 - 构建前先跑 `run_tests.py`，失败不构建
-- 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
-- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
+- `run.py --previous-release` 在下载依赖之前先取最新一版 Release 的 `fntv-manifest.json` 并入本次清单；那版没有清单、或清单的 `archiveVersion` 不是它的 tag 时构建失败
+- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、Release 标题、artifact 名、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
 - 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
 - Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：本次处理的依赖、停用的依赖、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
 - 自动上传构建产物，保留 30 天
@@ -498,7 +499,7 @@ custom_config/
 
 - `files[]` 列出 `portable_config` 下的每个文件：相对路径、`sha256`、`role`、`knownHashes`。
 - 归属（`role`）：`scripts/**`、`fonts/**`、`shaders/**`、`fntv/defaults.conf` 是 `managed`；`mpv.conf`、`input.conf`、`script-opts/*.conf` 是 `config`；`danmaku-history.json` 是 `seed`。新增文件如果不在这些规则里，打包会失败，要先在 `src/manifest.py` 的 `ROLE_RULES` 里给它定归属。
-- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release，由 `build_manifest_history.py` 生成，复现方法见脚本开头），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 自动下载，`--previous-manifest`）。
+- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release，由 `build_manifest_history.py` 生成，复现方法见脚本开头），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 用 `--previous-release` 自动下载；本地可用 `--previous-manifest` 指定文件）。
 - `obsolete`：历史里出现过、本次没有的托管路径，带它们的 `knownHashes`。删掉的 `config` 文件不进 `obsolete`，客户端一律保留。
 
 ### mpv.conf 分层

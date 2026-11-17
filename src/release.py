@@ -95,7 +95,8 @@ def write_build_result(result: BuildResult, path: Path,
     notes_path.write_text(render_release_notes(result, env), encoding="utf-8", newline="\n")
     data = {
         "archiveVersion": package.archive_version,
-        "timestamp": package.timestamp,
+        "releaseTitle": f"FNTV MPV v{package.timestamp}",
+        "artifactName": f"fntv-mpv-config-{package.timestamp}",
         "outputDir": str(result.output_dir),
         "packagePath": str(package.path),
         "manifestAssetPath": str(package.manifest_asset_path),
