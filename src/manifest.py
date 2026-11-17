@@ -1,7 +1,7 @@
 """
 MPV 归档清单 fntv-manifest.json
 
-清单放在归档根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
+清单放在安装包根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
 客户端靠它按 conffile 方式同步用户配置。格式见 JayYa/fntv-electron#219。
 """
 import fnmatch
@@ -10,12 +10,15 @@ import json
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, FrozenSet, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 MANIFEST_NAME = "fntv-manifest.json"
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
+HISTORY_DESCRIPTION = ("本 fork 发过的 MPV 归档中每个 portable_config 路径出现过的 sha256；"
+                       "由 build_manifest_history.py 生成，只增不减")
 FORMAT_VERSION = 1
 PORTABLE_CONFIG = "portable_config"
+DEFAULTS_CONF = "fntv/defaults.conf"
 
 ROLES = ("managed", "config", "seed")
 ROLES_KEPT_BY_CLIENT = ("config", "seed")
@@ -25,7 +28,7 @@ ROLE_RULES = [
     ("scripts/*", "managed"),
     ("fonts/*", "managed"),
     ("shaders/*", "managed"),
-    ("fntv/defaults.conf", "managed"),
+    (DEFAULTS_CONF, "managed"),
     ("mpv.conf", "config"),
     ("input.conf", "config"),
     ("danmaku-history.json", "seed"),
@@ -38,27 +41,166 @@ PROVIDES = {
 }
 
 
-# mpv.conf 分层：默认值在托管的 fntv/defaults.conf 的 [fntv-defaults] 段里，
-# 薄 mpv.conf 的前两个有效行是 include 它和 profile=fntv-defaults，用户设置写在后面。
-#
-# 为什么要 profile 段（附带 MPV 55d3feb45 实测，见 options/parse_configfile.c 和
-# m_config_frontend.c）：配置文件顶层的选项先存进 default profile，读完整个文件才按顺序应用；
-# include 在应用时才读入目标文件，目标文件的顶层选项追加到 default profile 末尾，
-# 于是排在外层文件所有行之后，默认值反而覆盖用户设置。放进命名段再用 profile= 立即应用，
-# 默认值就在 include 行的位置生效，后面的用户设置覆盖它。
-DEFAULTS_CONF = "fntv/defaults.conf"
-DEFAULTS_PROFILE = "fntv-defaults"
-INCLUDE_LINE = 'include="~~/fntv/defaults.conf"'
-
-
 class ManifestError(Exception):
-    """清单生成错误"""
+    def __init__(self, errors: Iterable[str]):
+        self.errors = list(errors)
+        super().__init__("；".join(self.errors))
 
 
-def write_manifest(archive_root: Path, manifest: dict) -> Path:
-    """把清单写到归档根目录（与 mpv.exe、portable_config 同级）"""
+@dataclass(frozen=True)
+class ManifestFile:
+    path: str
+    sha256: str
+    role: str
+    known_hashes: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ObsoleteFile:
+    path: str
+    known_hashes: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Manifest:
+    archive_version: str
+    components: Mapping[str, str]
+    managed_dirs: Tuple[str, ...]
+    files: Tuple[ManifestFile, ...]
+    obsolete: Tuple[ObsoleteFile, ...] = ()
+    provides: Mapping[str, int] = field(default_factory=lambda: dict(PROVIDES))
+
+    @classmethod
+    def parse(cls, data: bytes, where: str) -> "Manifest":
+        """
+        读入清单并校验结构；一次报出全部结构错误
+
+        Raises:
+            ManifestError: 不是 JSON，或结构不合格式（每条错误都以 where 开头）
+        """
+        try:
+            raw = json.loads(data.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError) as e:
+            raise ManifestError([f"{where} 不是合法的 JSON: {e}"]) from e
+        if not isinstance(raw, dict):
+            raise ManifestError([f"{where} 应为 JSON 对象"])
+        errors = _Errors(where)
+        if raw.get("formatVersion") != FORMAT_VERSION:
+            errors.add(f"formatVersion 应为 {FORMAT_VERSION}，实际为 {raw.get('formatVersion')!r}")
+        archive_version = raw.get("archiveVersion")
+        if not _is_str(archive_version):
+            errors.add(f"archiveVersion 应为非空字符串，实际为 {archive_version!r}")
+        components = raw.get("components")
+        if not (isinstance(components, dict) and components
+                and all(_is_str(k) and isinstance(v, str) for k, v in components.items())):
+            errors.add("components 应为非空对象，值为版本字符串")
+            components = {}
+        provides = raw.get("provides")
+        if not (isinstance(provides, dict)
+                and all(isinstance(v, int) and not isinstance(v, bool) for v in provides.values())):
+            errors.add("provides 应为对象，值为整数版本")
+            provides = {}
+        managed_dirs = raw.get("managedDirs")
+        if not _is_str_list(managed_dirs):
+            errors.add("managedDirs 应为字符串数组")
+            managed_dirs = []
+        file_entries = list(_unique_entries_with_path(raw.get("files"), "files", "缺少 files 列表", errors))
+        files = _parse_files(file_entries, errors)
+        listed_paths = {path for path, _ in file_entries}
+        obsolete = _parse_obsolete(raw.get("obsolete"), listed_paths, errors)
+        errors.raise_if_any()
+        return cls(archive_version=archive_version, components=dict(components),
+                   managed_dirs=tuple(managed_dirs), files=files, obsolete=obsolete,
+                   provides=dict(provides))
+
+    def to_bytes(self) -> bytes:
+        data = {
+            "formatVersion": FORMAT_VERSION,
+            "archiveVersion": self.archive_version,
+            "components": dict(self.components),
+            "provides": dict(self.provides),
+            "managedDirs": list(self.managed_dirs),
+            "files": [{"path": f.path, "sha256": f.sha256, "role": f.role,
+                       "knownHashes": list(f.known_hashes)} for f in self.files],
+            "obsolete": [{"path": o.path, "knownHashes": list(o.known_hashes)} for o in self.obsolete],
+        }
+        return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+class _Errors:
+    def __init__(self, where: str):
+        self.where = where
+        self.messages: List[str] = []
+
+    def add(self, message: str):
+        self.messages.append(f"{self.where}: {message}")
+
+    def raise_if_any(self):
+        if self.messages:
+            raise ManifestError(self.messages)
+
+
+def _is_str(value: Any) -> bool:
+    return isinstance(value, str) and value != ""
+
+
+def _is_str_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+def _unique_entries_with_path(entries: Any, section: str, missing: str,
+                              errors: _Errors) -> Iterator[Tuple[str, dict]]:
+    if not isinstance(entries, list):
+        errors.add(missing)
+        return
+    seen: Set[str] = set()
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, dict) or not _is_str(entry.get("path")):
+            errors.add(f"{section}[{i}] 应为带 path 的对象")
+            continue
+        path = entry["path"]
+        if path in seen:
+            errors.add(f"{section} 里 {path} 重复出现")
+            continue
+        seen.add(path)
+        yield path, entry
+
+
+def _parse_files(entries: List[Tuple[str, dict]], errors: _Errors) -> Tuple[ManifestFile, ...]:
+    files: List[ManifestFile] = []
+    for path, entry in entries:
+        sha256, role, known = entry.get("sha256"), entry.get("role"), entry.get("knownHashes")
+        valid = True
+        if not _is_str(sha256):
+            errors.add(f"{path} 缺少 sha256")
+            valid = False
+        if role not in ROLES:
+            errors.add(f"{path} 的 role 不合法: {role!r}")
+            valid = False
+        if not _is_str_list(known) or sha256 not in known:
+            errors.add(f"{path} 的 knownHashes 应为包含本次 sha256 的数组")
+            valid = False
+        if valid:
+            files.append(ManifestFile(path, sha256, role, tuple(known)))
+    return tuple(files)
+
+
+def _parse_obsolete(entries: Any, listed_paths: Set[str], errors: _Errors) -> Tuple[ObsoleteFile, ...]:
+    obsolete: List[ObsoleteFile] = []
+    for path, entry in _unique_entries_with_path(entries, "obsolete", "obsolete 应为数组", errors):
+        if path in listed_paths:
+            errors.add(f"{path} 同时出现在 files 和 obsolete 里")
+        known = entry.get("knownHashes")
+        if not _is_str_list(known):
+            errors.add(f"obsolete 里 {path} 的 knownHashes 应为字符串数组")
+            continue
+        obsolete.append(ObsoleteFile(path, tuple(known)))
+    return tuple(obsolete)
+
+
+def write_manifest(archive_root: Path, manifest: Manifest) -> Path:
     path = Path(archive_root) / MANIFEST_NAME
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    path.write_bytes(manifest.to_bytes())
     return path
 
 
@@ -85,63 +227,89 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def load_history(path: Path) -> dict:
-    """读取提交在仓库里的历史哈希（manifest-history.json）"""
-    with open(path, "r", encoding="utf-8") as f:
-        history = json.load(f)
-    if not isinstance(history.get("files"), dict):
-        raise ManifestError(f"{path} 缺少 files 对象")
-    return history
+def portable_config_entries(z: zipfile.ZipFile) -> Iterator[Tuple[str, bytes]]:
+    """安装包里 portable_config 下的每个文件：(相对 portable_config 的正斜杠路径, 内容)"""
+    prefix = PORTABLE_CONFIG + "/"
+    for info in z.infolist():
+        name = info.filename.replace("\\", "/")
+        if name.startswith(prefix) and not name.endswith("/"):
+            yield name[len(prefix):], z.read(info)
 
 
-def history_from_archives(archives: List[Tuple[str, Path]]) -> dict:
+@dataclass(frozen=True)
+class ManifestHistory:
+    archives: Tuple[str, ...] = ()
+    files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
+
+    def to_bytes(self) -> bytes:
+        data = {
+            "description": HISTORY_DESCRIPTION,
+            "archives": list(self.archives),
+            "files": {path: list(hashes) for path, hashes in self.files.items()},
+        }
+        return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def load_history(path: Path) -> ManifestHistory:
     """
-    从历史归档 zip 算出每个 portable_config 路径出现过的全部哈希
+    读取提交在仓库里的历史哈希（manifest-history.json）
+
+    Raises:
+        ManifestError: 读不出文件，或结构不对
+    """
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ManifestError([f"读取历史哈希 {path} 失败: {e}"]) from e
+    errors = _Errors(str(path))
+    archives = raw.get("archives") if isinstance(raw, dict) else None
+    files = raw.get("files") if isinstance(raw, dict) else None
+    if not _is_str_list(archives):
+        errors.add("archives 应为字符串数组")
+    if not (isinstance(files, dict) and all(_is_str_list(h) for h in files.values())):
+        errors.add("files 应为对象，值为 sha256 数组")
+    errors.raise_if_any()
+    return ManifestHistory(tuple(archives), {p: tuple(h) for p, h in files.items()})
+
+
+def history_from_archives(archives: List[Tuple[str, Path]]) -> ManifestHistory:
+    """
+    从历史安装包算出每个 portable_config 路径出现过的全部哈希（排序去重）
 
     Args:
         archives: (Release tag, zip 路径) 列表，按发布顺序
-
-    Returns:
-        {"archives": [tag...], "files": {路径: [排序去重的 sha256...]}}
     """
     files: Dict[str, Set[str]] = {}
-    prefix = PORTABLE_CONFIG + "/"
     for _tag, zip_path in archives:
         with zipfile.ZipFile(zip_path) as z:
-            for info in z.infolist():
-                name = info.filename.replace("\\", "/")
-                if name.startswith(prefix) and not name.endswith("/"):
-                    files.setdefault(name[len(prefix):], set()).add(sha256_bytes(z.read(info)))
-    return {
-        "archives": [tag for tag, _ in archives],
-        "files": {path: sorted(hashes) for path, hashes in sorted(files.items())},
-    }
+            for rel, data in portable_config_entries(z):
+                files.setdefault(rel, set()).add(sha256_bytes(data))
+    return ManifestHistory(
+        tuple(tag for tag, _ in archives),
+        {path: tuple(sorted(hashes)) for path, hashes in sorted(files.items())},
+    )
 
 
 @dataclass(frozen=True)
 class KnownHashes:
-    """
-    已知哈希：提交的历史哈希与上一版清单合并后，每个路径出现过的全部 sha256
-    """
     hashes: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
     previously_obsolete: FrozenSet[str] = frozenset()
 
     @classmethod
-    def merge(cls, history: Optional[dict] = None,
-              previous_manifest: Optional[dict] = None) -> "KnownHashes":
-        """合并提交的历史（load_history 的结果）和上一版清单"""
+    def merge(cls, history: Optional[ManifestHistory] = None,
+              previous_manifest: Optional[Manifest] = None) -> "KnownHashes":
         known: Dict[str, Set[str]] = {}
         previously_obsolete: Set[str] = set()
         if history:
-            for path, hashes in history.get("files", {}).items():
+            for path, hashes in history.files.items():
                 known.setdefault(path, set()).update(hashes)
         if previous_manifest:
-            for entry in previous_manifest.get("files", []):
-                known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
-                known[entry["path"]].add(entry["sha256"])
-            for entry in previous_manifest.get("obsolete", []):
-                known.setdefault(entry["path"], set()).update(entry.get("knownHashes", []))
-                previously_obsolete.add(entry["path"])
+            for f in previous_manifest.files:
+                known.setdefault(f.path, set()).update(f.known_hashes)
+                known[f.path].add(f.sha256)
+            for o in previous_manifest.obsolete:
+                known.setdefault(o.path, set()).update(o.known_hashes)
+                previously_obsolete.add(o.path)
         return cls({path: frozenset(h) for path, h in known.items()}, frozenset(previously_obsolete))
 
     def of(self, path: str) -> Set[str]:
@@ -153,7 +321,7 @@ class KnownHashes:
 
 def build_manifest(portable_config_dir: Path, archive_version: str,
                    components: Dict[str, str], known: Optional[KnownHashes] = None,
-                   managed_dirs: Sequence[str] = ()) -> dict:
+                   managed_dirs: Sequence[str] = ()) -> Manifest:
     """
     扫描 portable_config 目录生成清单
 
@@ -166,7 +334,7 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
     """
     known = known or KnownHashes()
     portable_config_dir = Path(portable_config_dir)
-    files: List[dict] = []
+    files: List[ManifestFile] = []
     unclassified: List[str] = []
     for item in sorted(portable_config_dir.rglob("*")):
         if not item.is_file():
@@ -177,202 +345,16 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
             unclassified.append(rel)
             continue
         digest = sha256_file(item)
-        files.append({
-            "path": rel, "sha256": digest, "role": role,
-            "knownHashes": sorted(known.of(rel) | {digest}),
-        })
+        files.append(ManifestFile(rel, digest, role, tuple(sorted(known.of(rel) | {digest}))))
     if unclassified:
-        raise ManifestError(f"以下文件没有归属规则: {', '.join(unclassified)}")
+        raise ManifestError([f"以下文件没有归属规则: {', '.join(unclassified)}"])
 
-    files.sort(key=lambda f: f["path"])
-    current = {f["path"] for f in files}
-    obsolete = [
-        {"path": path, "knownHashes": sorted(hashes)}
+    files.sort(key=lambda f: f.path)
+    current = {f.path for f in files}
+    obsolete = tuple(
+        ObsoleteFile(path, tuple(sorted(hashes)))
         for path, hashes in sorted(known.hashes.items())
         if path not in current and known.is_obsolete_candidate(path)
-    ]
-    return {
-        "formatVersion": FORMAT_VERSION,
-        "archiveVersion": archive_version,
-        "components": dict(components),
-        "provides": dict(PROVIDES),
-        "managedDirs": list(managed_dirs),
-        "files": files,
-        "obsolete": obsolete,
-    }
-
-
-def _effective_lines(data: bytes) -> List[str]:
-    """mpv 配置文件里去掉注释和空行后的行（足够判断分层结构，不是完整的 mpv 解析）"""
-    text = data.decode("utf-8-sig", errors="replace")
-    lines = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if not line.startswith(("include", "[")):
-            line = line.split("#", 1)[0].strip()
-        lines.append(line)
-    return lines
-
-
-def check_mpv_conf_layering(mpv_conf: bytes, defaults_conf: bytes) -> List[str]:
-    """检查 mpv.conf 分层：include 在最前、带 ~~/，紧跟 profile=fntv-defaults；默认值在命名段里"""
-    errors = []
-    lines = _effective_lines(mpv_conf)
-    first = lines[0] if lines else ""
-    if not first.startswith("include"):
-        errors.append(f"mpv.conf 的首个有效行应为 {INCLUDE_LINE}，实际为 {first!r}"
-                      "（include 必须在任何 [profile] 段和设置之前）")
-    else:
-        value = first[len("include"):].strip().lstrip("=").strip().strip("\"'")
-        if not value.startswith("~~/"):
-            errors.append(f"mpv.conf 的 include 路径必须带 ~~/ 前缀，实际为 {value!r}")
-        elif value != "~~/" + DEFAULTS_CONF:
-            errors.append(f"mpv.conf 的 include 应指向 ~~/{DEFAULTS_CONF}，实际为 {value!r}")
-    if len(lines) < 2 or lines[1].replace(" ", "") != f"profile={DEFAULTS_PROFILE}":
-        errors.append(f"mpv.conf 的 include 行后应紧跟 profile={DEFAULTS_PROFILE}，"
-                      "否则默认值会排在用户设置之后生效")
-    defaults = _effective_lines(defaults_conf)
-    if not defaults or defaults[0] != f"[{DEFAULTS_PROFILE}]":
-        errors.append(f"{DEFAULTS_CONF} 的设置必须全部写在 [{DEFAULTS_PROFILE}] 段里，"
-                      f"首个有效行应为 [{DEFAULTS_PROFILE}]")
-    return errors
-
-
-def check_archive(zip_path: Path, *, required_paths: Sequence[str], managed_dirs: Sequence[str],
-                  archive_version: Optional[str] = None,
-                  known: Optional[KnownHashes] = None) -> List[str]:
-    """
-    检查打包产出的 zip 和其中的清单是否一致、是否满足客户端依赖
-
-    Args:
-        zip_path: 安装包路径
-        required_paths: zip 里必须有的文件（相对安装包根目录）
-        managed_dirs: 清单的 managedDirs 至少要有的目录
-        archive_version: 期望的 archiveVersion（本次 Release tag），None 时不检查
-        known: 已知哈希；其中每个哈希都必须还在清单里（只增不减），None 时视为没有历史
-
-    Returns:
-        错误列表，空列表表示通过
-    """
-    known = known or KnownHashes()
-    errors: List[str] = []
-    with zipfile.ZipFile(zip_path) as z:
-        names = [n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")]
-        if MANIFEST_NAME not in names:
-            return [f"归档根目录缺少 {MANIFEST_NAME}"]
-        try:
-            manifest = json.loads(z.read(MANIFEST_NAME).decode("utf-8"))
-        except (ValueError, UnicodeDecodeError) as e:
-            return [f"{MANIFEST_NAME} 不是合法的 JSON: {e}"]
-
-        prefix = PORTABLE_CONFIG + "/"
-        zip_hashes = {}
-        layered = {}
-        for info in z.infolist():
-            name = info.filename.replace("\\", "/")
-            if name.startswith(prefix) and not name.endswith("/"):
-                rel = name[len(prefix):]
-                data = z.read(info)
-                zip_hashes[rel] = sha256_bytes(data)
-                if rel in ("mpv.conf", DEFAULTS_CONF):
-                    layered[rel] = data
-
-    if "mpv.conf" in layered and DEFAULTS_CONF in layered:
-        errors.extend(check_mpv_conf_layering(layered["mpv.conf"], layered[DEFAULTS_CONF]))
-
-    if manifest.get("formatVersion") != FORMAT_VERSION:
-        errors.append(f"formatVersion 应为 {FORMAT_VERSION}，实际为 {manifest.get('formatVersion')!r}")
-    if archive_version is not None and manifest.get("archiveVersion") != archive_version:
-        errors.append(
-            f"archiveVersion 应为 {archive_version}，实际为 {manifest.get('archiveVersion')!r}"
-        )
-    if not isinstance(manifest.get("components"), dict) or not manifest["components"]:
-        errors.append("components 应为非空对象")
-
-    provides = manifest.get("provides") or {}
-    for key, version in PROVIDES.items():
-        if not isinstance(provides.get(key), int) or provides[key] < version:
-            errors.append(f"provides 缺少 {key}（至少版本 {version}）")
-
-    manifest_managed_dirs = manifest.get("managedDirs") or []
-    for d in managed_dirs:
-        if d not in manifest_managed_dirs:
-            errors.append(f"managedDirs 缺少 {d}")
-
-    seen = set()
-    for entry in manifest.get("files") or []:
-        path = entry.get("path")
-        if path in seen:
-            errors.append(f"清单里 {path} 重复出现")
-            continue
-        seen.add(path)
-        if path not in zip_hashes:
-            errors.append(f"清单列出的 {path} 不在 zip 的 {PORTABLE_CONFIG} 里")
-        elif entry.get("sha256") != zip_hashes[path]:
-            errors.append(f"{path} 的 sha256 与 zip 内容不符")
-        role = entry.get("role")
-        if role not in ROLES:
-            errors.append(f"{path} 的 role 不合法: {role!r}")
-        elif role != role_of(path):
-            errors.append(f"{path} 的 role 应为 {role_of(path)!r}，实际为 {role!r}")
-        entry_known = entry.get("knownHashes")
-        if not isinstance(entry_known, list) or entry.get("sha256") not in entry_known:
-            errors.append(f"{path} 的 knownHashes 应包含本次 sha256")
-
-    for path in sorted(set(zip_hashes) - seen):
-        errors.append(f"zip 里的 {PORTABLE_CONFIG}/{path} 没有出现在清单里")
-
-    for path in required_paths:
-        if path not in names:
-            errors.append(f"缺少客户端依赖的路径 {path}")
-
-    obsolete_entries = manifest.get("obsolete")
-    if not isinstance(obsolete_entries, list):
-        errors.append("obsolete 应为数组")
-        obsolete_entries = []
-    obsolete = {}
-    for entry in obsolete_entries:
-        path = entry.get("path")
-        if path in seen:
-            errors.append(f"{path} 同时出现在 files 和 obsolete 里")
-        if path in obsolete:
-            errors.append(f"obsolete 里 {path} 重复出现")
-        obsolete[path] = set(entry.get("knownHashes") or [])
-
-    # knownHashes 只增不减：历史和上一版清单里的每个哈希都还在
-    current_known = {
-        f.get("path"): set(f.get("knownHashes") or []) for f in manifest.get("files") or []
-    }
-    for path, hashes in sorted(known.hashes.items()):
-        if path in current_known:
-            have = current_known[path]
-        elif path in obsolete:
-            have = obsolete[path]
-        elif known.is_obsolete_candidate(path):
-            errors.append(f"历史托管路径 {path} 本次没有，应出现在 obsolete 里")
-            continue
-        else:
-            continue
-        for h in sorted(hashes - have):
-            errors.append(f"{path} 的 knownHashes 丢了历史哈希 {h}")
-    return errors
-
-
-def check_manifest_asset(zip_path: Path, asset_path: Path) -> List[str]:
-    """
-    契约测试：Release 单独上传的清单资产必须存在，且与 zip 根目录里的清单逐字节相同
-
-    Returns:
-        错误列表，空列表表示通过
-    """
-    asset_path = Path(asset_path)
-    if not asset_path.is_file():
-        return [f"Release 要上传的 {MANIFEST_NAME} 不存在: {asset_path}"]
-    with zipfile.ZipFile(zip_path) as z:
-        if MANIFEST_NAME not in z.namelist():
-            return [f"安装包根目录缺少 {MANIFEST_NAME}"]
-        if asset_path.read_bytes() != z.read(MANIFEST_NAME):
-            return [f"Release 要上传的 {asset_path} 与 zip 里的 {MANIFEST_NAME} 不同"]
-    return []
+    )
+    return Manifest(archive_version=archive_version, components=dict(components),
+                    managed_dirs=tuple(managed_dirs), files=tuple(files), obsolete=obsolete)

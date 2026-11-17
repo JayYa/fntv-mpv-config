@@ -12,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
                                  is_package_archive_name)
+from src.manifest import ManifestHistory
 from tests.test_manifest import (CLIENT_LAYOUT, SHA256_ABC, SHA256_DEF, SHA256_GHI,
-                                 VALID_PORTABLE_CONFIG, write_portable_config)
+                                 VALID_PORTABLE_CONFIG, previous_manifest, write_portable_config)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -49,11 +50,11 @@ class TestBuildPackageArchive(unittest.TestCase):
 
     def test_known_hashes_reach_the_manifest(self):
         known = KnownHashes.merge(
-            {"archives": ["fntv-mpv-v1"], "files": {
-                "scripts/uosc/main.lua": [SHA256_ABC],
-                "scripts/removed.lua": [SHA256_DEF],
-            }},
-            {"files": [], "obsolete": [{"path": "scripts/older.lua", "knownHashes": [SHA256_GHI]}]},
+            ManifestHistory(("fntv-mpv-v1",), {
+                "scripts/uosc/main.lua": (SHA256_ABC,),
+                "scripts/removed.lua": (SHA256_DEF,),
+            }),
+            previous_manifest(obsolete=[{"path": "scripts/older.lua", "knownHashes": [SHA256_GHI]}]),
         )
 
         package = self.build(known)

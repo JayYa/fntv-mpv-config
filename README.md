@@ -52,8 +52,9 @@ fntv-mpv-config/
 │   ├── extract.py         # 按扩展名解压
 │   ├── install_manager.py # 安装管理
 │   ├── log_setup.py       # 日志输出设置
-│   ├── package_archive.py # 安装包构建与契约测试的入口
-│   ├── manifest.py        # 清单格式、归属规则、已知哈希和各项契约检查（package_archive 的实现）
+│   ├── package_archive.py # 安装包构建：生成清单、打包、跑契约测试
+│   ├── contract_test.py   # 契约测试：安装包与清单的一致性检查
+│   ├── manifest.py        # 清单格式与解析、归属规则、历史哈希和已知哈希
 │   └── release.py         # 构建结果 JSON 和 Release 说明
 ├── custom_config/         # 自定义配置目录：base/ 是基础配置，其余按依赖项名分子目录
 │   ├── base/              # 基础配置：mpv.conf、input.conf、fntv/defaults.conf、shaders/
@@ -496,7 +497,7 @@ custom_config/
 
 ## 归档清单 fntv-manifest.json
 
-归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，生成和检查的代码在 `src/manifest.py`。
+归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，格式和生成的代码在 `src/manifest.py`，契约测试在 `src/contract_test.py`。
 
 - `files[]` 列出 `portable_config` 下的每个文件：相对路径、`sha256`、`role`、`knownHashes`。
 - 归属（`role`）：`scripts/**`、`fonts/**`、`shaders/**`、`fntv/defaults.conf` 是 `managed`；`mpv.conf`、`input.conf`、`script-opts/*.conf` 是 `config`；`danmaku-history.json` 是 `seed`。新增文件如果不在这些规则里，打包会失败，要先在 `src/manifest.py` 的 `ROLE_RULES` 里给它定归属。
@@ -572,9 +573,10 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件。安装、清单的 `managedDirs` 和契约测试的必需路径都从它来
 4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
 5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
-6. **package_archive.py**: 调用方唯一的入口。`build_package_archive` 生成清单、打安装包并跑契约测试；`contract_test` 是契约测试的唯一入口
-7. **manifest.py**: 清单格式、归属规则、已知哈希的合并（含默认的 `manifest-history.json` 路径）和各项契约检查
-8. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、校验后合并成已知哈希；拿不到或校验不过时抛 `PreviousManifestError`。`run()` 和 `check_archive.py` 都经它取已知哈希
+6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试，不通过时抛 `ContractTestFailed`
+7. **contract_test.py**: `contract_test(安装包, 已知哈希, 依赖布局)` 是契约测试的唯一入口，返回全部错误；`build_package_archive` 和 `check_archive.py` 都调用它
+8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有归属规则、历史哈希（`load_history`、`history_from_archives`）和已知哈希的合并
+9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`run()` 和 `check_archive.py` 都经它取已知哈希
 
 ### 扩展性
 
@@ -709,7 +711,8 @@ python -m unittest tests.test_download_manager -v
 - ✅ **previous_manifest**: 从 Release 或本地文件取上一版清单，缺清单、缺 `files`、不属于那版 Release 时失败
 - ✅ **extract**: 格式识别、tar.gz 解压、拒绝越出目标目录的 tar 成员
 - ✅ **InstallManager**: install_to 和自定义规则、模式匹配语义、规则对不上内容目录或两个依赖装同一文件时报错
-- ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程（含上次构建的残留不进安装包）
+- ✅ **manifest**: 清单解析与生成、历史哈希、完整打包流程（含上次构建的残留不进安装包）
+- ✅ **contract_test**: 契约测试的每项检查和 `check_archive.py`
 - ✅ **package_cfg.json**: 固定的依赖版本和下载地址
 
 各测试文件的说明见 [tests/README.md](tests/README.md)。

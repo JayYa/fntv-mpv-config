@@ -16,7 +16,8 @@ tests/
 ├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
-├── test_manifest.py     # 归档清单 fntv-manifest.json 的生成与契约测试
+├── test_manifest.py     # 归档清单 fntv-manifest.json 的解析、生成、历史哈希和端到端打包
+├── test_contract_test.py # 契约测试：经 contract_test 和 check_archive.py 测每项检查
 ├── test_package_archive.py # 安装包构建：打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
 ├── test_skip_window.py  # smart_skip 的跳过窗口 module（Lua，经 lupa 加载）
@@ -25,7 +26,7 @@ tests/
 
 测试都不访问网络：下载器、上一版清单和端到端 `run()` 的测试注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
 
-`test_manifest.py` 覆盖清单生成（`build_manifest`）、经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑的契约测试，以及跑完整 `run()` 的端到端测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
+`test_manifest.py` 覆盖清单的结构校验（`Manifest.parse`）、生成（`build_manifest`）、历史哈希，以及跑完整 `run()` 的端到端测试。`test_contract_test.py` 经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑契约测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 
 ### 测试模块详情
 
@@ -66,7 +67,7 @@ tests/
 #### 1a. test_previous_manifest.py - 上一版清单测试
 - **TestLoadKnownHashes**: 经 `load_known_hashes` 测，Release 来源注入假的 HTTP 会话
   - 最新一版 Release 的清单并入已知哈希；本地文件与历史哈希合并，含 `obsolete`
-  - Release 没有 `fntv-manifest.json`、清单的 `archiveVersion` 不是那版的 tag、缺 `files` 列表时报 `PreviousManifestError`；本地文件缺 `files` 或不是 JSON 时同样报错
+  - Release 没有 `fntv-manifest.json`、清单的 `archiveVersion` 不是那版的 tag、缺 `files` 列表时报 `PreviousManifestError`；本地文件缺 `files`、某条缺 `sha256` 或不是 JSON 时同样报错
   - 不给参数时只用仓库里的 `manifest-history.json`
 
 #### 1b. test_extract.py - 解压测试
@@ -116,11 +117,16 @@ tests/
   - `custom_config` 根目录下没有散文件
 
 #### 4. test_manifest.py - 归档清单测试
-- **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败
-- **TestCheckArchive**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项契约检查，含根目录缺 `mpv.exe`；清单资产与 zip 内清单的比对；`check_archive.py` 的退出码、`--manifest-asset`、`--config`，以及读不出 `--previous-manifest` 时报错退出、不打出 traceback
+- **TestBuildManifest**: 清单列出每个文件的路径、哈希和 `role`，没有归属规则的文件让生成失败；写出的字节解析回同一份清单，键序固定、LF 结尾
+- **TestParseManifest**: `Manifest.parse` 一次报出全部结构错误：不是 JSON、缺字段或类型不对、`role` 不合法、`knownHashes` 不含本次 `sha256`、路径重复或同时在 `files` 和 `obsolete` 里
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
-- **TestHistory**: 历史哈希的收集与合并、`obsolete`、`knownHashes` 只增不减
+- **TestHistory**: 历史哈希的收集、结构校验与合并、`obsolete`
 - **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，经假会话取到的上一版 Release 清单的已知哈希进本次清单，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`，命令行 `--result-file` 写出构建结果和 Release 说明
+
+#### 4a. test_contract_test.py - 契约测试
+- **TestContractTest**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项一致性检查，含根目录缺 `mpv.exe`、mpv.conf 分层、清单资产与 zip 内清单的比对；清单结构不对时报出结构错误
+- **TestKnownHashesKept**: 历史哈希和上一版清单里的每个哈希都还在本次清单里
+- **TestCheckArchiveCommandLine**: `check_archive.py` 的退出码、`--manifest-asset`、`--config`，以及读不出 `--previous-manifest` 时报错退出、不打出 traceback
 
 #### 5. test_package_archive.py - 安装包构建测试
 - **TestBuildPackageArchive**: 时间戳决定归档版本、zip 名和清单资产位置；已知哈希进清单；契约测试失败抛 `ContractTestFailed`；默认用北京时间，格式错误的时间戳在写任何文件前被拒绝；`is_package_archive_name` 只认自己产出的 zip 名
