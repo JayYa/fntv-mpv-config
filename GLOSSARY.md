@@ -84,6 +84,10 @@ _Avoid_: 类型, 分类
 某个路径在历次安装包里出现过的全部内容哈希，客户端据此判断用户是否改过该文件；只增不减。
 _Avoid_: 历史版本
 
+**历史哈希（manifest history）**:
+提交在仓库里的 `manifest-history.json`：本 fork 早于清单的历次安装包里，每个 portable_config 路径出现过的哈希；与上一版清单合并后得到已知哈希。
+_Avoid_: 历史清单, 哈希历史
+
 **上一版清单（previous manifest）**:
 最新一版 Release 附带的清单；它的已知哈希和过时文件并入本次清单。指定从 Release 取（CI 总是这样）而拿不到它、或它不属于那版 Release 时构建失败；指定的本地文件读不出清单时同样失败。
 _Avoid_: 旧清单, 历史清单

@@ -12,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.dependency_layout import load_layout
-from src.manifest import ManifestError, build_manifest, history_from_archives, load_history
+from src.manifest import (Manifest, ManifestError, ManifestHistory, build_manifest,
+                          history_from_archives, load_history)
 from src.package_archive import KnownHashes, contract_test
 
 
@@ -56,16 +57,15 @@ class TestBuildManifest(unittest.TestCase):
             managed_dirs=["scripts/uosc", "scripts/smart_skip"],
         )
 
-        self.assertEqual(manifest["formatVersion"], 1)
-        self.assertEqual(manifest["archiveVersion"], "fntv-mpv-v20261114_235959")
-        self.assertEqual(manifest["components"], {"uosc": "5.13.0", "smart_skip": "local"})
-        self.assertEqual(manifest["provides"], {"smart-skip.origin-from-play-url": 1})
-        self.assertEqual(manifest["managedDirs"], ["scripts/uosc", "scripts/smart_skip"])
-        self.assertEqual(manifest["obsolete"], [])
+        self.assertEqual(manifest.archive_version, "fntv-mpv-v20261114_235959")
+        self.assertEqual(manifest.components, {"uosc": "5.13.0", "smart_skip": "local"})
+        self.assertEqual(manifest.provides, {"smart-skip.origin-from-play-url": 1})
+        self.assertEqual(manifest.managed_dirs, ("scripts/uosc", "scripts/smart_skip"))
+        self.assertEqual(manifest.obsolete, ())
 
-        files = {f["path"]: f for f in manifest["files"]}
+        files = {f.path: f for f in manifest.files}
         self.assertEqual(
-            {path: f["role"] for path, f in files.items()},
+            {path: f.role for path, f in files.items()},
             {
                 "mpv.conf": "config",
                 "input.conf": "config",
@@ -77,15 +77,96 @@ class TestBuildManifest(unittest.TestCase):
                 "shaders/Anime4K_Clamp_Highlights.glsl": "managed",
             },
         )
-        self.assertEqual(files["input.conf"]["sha256"], SHA256_EMPTY)
-        self.assertEqual(files["mpv.conf"]["sha256"], SHA256_ABC)
-        self.assertEqual(files["mpv.conf"]["knownHashes"], [SHA256_ABC])
+        self.assertEqual(files["input.conf"].sha256, SHA256_EMPTY)
+        self.assertEqual(files["mpv.conf"].sha256, SHA256_ABC)
+        self.assertEqual(files["mpv.conf"].known_hashes, (SHA256_ABC,))
 
     def test_file_without_a_role_is_rejected(self):
         write_portable_config(self.portable, {"mpv.conf": b"", "notes.txt": b""})
 
         with self.assertRaisesRegex(ManifestError, "notes.txt"):
             build_manifest(self.portable, "fntv-mpv-v20261114_235959", {})
+
+    def test_written_bytes_parse_back_to_the_same_manifest(self):
+        write_portable_config(self.portable, {"mpv.conf": b"abc", "scripts/uosc/main.lua": b""})
+        manifest = build_manifest(self.portable, ARCHIVE_VERSION, {"uosc": "5.13.0"},
+                                  managed_dirs=["scripts/uosc"])
+
+        data = manifest.to_bytes()
+
+        self.assertEqual(Manifest.parse(data, "清单"), manifest)
+        self.assertTrue(data.endswith(b"}\n"))
+        self.assertNotIn(b"\r", data)
+        self.assertEqual(list(json.loads(data)), ["formatVersion", "archiveVersion", "components",
+                                                   "provides", "managedDirs", "files", "obsolete"])
+        self.assertEqual(list(json.loads(data)["files"][0]), ["path", "sha256", "role", "knownHashes"])
+
+
+def manifest_json(archive_version="fntv-mpv-v20261114_235959", files=(), obsolete=(),
+                  **fields) -> bytes:
+    """一份结构完整的清单，fields 覆盖或增加顶层字段"""
+    data = {"formatVersion": 1, "archiveVersion": archive_version,
+            "components": {"uosc": "5.13.0"}, "provides": {"smart-skip.origin-from-play-url": 1},
+            "managedDirs": [], "files": list(files), "obsolete": list(obsolete)}
+    data.update(fields)
+    return json.dumps(data).encode()
+
+
+def previous_manifest(files=(), obsolete=()) -> Manifest:
+    return Manifest.parse(manifest_json(files=files, obsolete=obsolete), "上一版清单")
+
+
+class TestParseManifest(unittest.TestCase):
+    """清单的结构由 Manifest.parse 一处校验，一次报出全部结构错误"""
+
+    def assertRejected(self, data: bytes, *fragments):
+        with self.assertRaises(ManifestError) as caught:
+            Manifest.parse(data, "清单")
+        for fragment in fragments:
+            self.assertTrue(any(fragment in e for e in caught.exception.errors),
+                            f"期望有包含 {fragment!r} 的错误，实际: {caught.exception.errors}")
+        self.assertTrue(all(e.startswith("清单") for e in caught.exception.errors))
+
+    def test_a_complete_manifest_parses(self):
+        manifest = Manifest.parse(manifest_json(
+            files=[{"path": "mpv.conf", "sha256": SHA256_ABC, "role": "config",
+                    "knownHashes": [SHA256_ABC, SHA256_EMPTY]}],
+            obsolete=[{"path": "scripts/old.lua", "knownHashes": [SHA256_EMPTY]}]), "清单")
+
+        self.assertEqual(manifest.files[0].known_hashes, (SHA256_ABC, SHA256_EMPTY))
+        self.assertEqual(manifest.obsolete[0].path, "scripts/old.lua")
+
+    def test_not_json_or_not_an_object(self):
+        self.assertRejected(b"not json", "不是合法的 JSON")
+        self.assertRejected(b"\xff", "不是合法的 JSON")
+        self.assertRejected(b"[]", "JSON 对象")
+
+    def test_every_structural_error_is_reported_at_once(self):
+        self.assertRejected(json.dumps({"archiveVersion": "x"}).encode(),
+                            "formatVersion", "components", "provides", "managedDirs",
+                            "缺少 files 列表", "obsolete 应为数组")
+
+    def test_file_entries_need_every_field(self):
+        self.assertRejected(manifest_json(files=[
+            {"path": "mpv.conf", "role": "config", "knownHashes": []},
+            {"path": "input.conf", "sha256": SHA256_ABC, "role": "user", "knownHashes": [SHA256_ABC]},
+            {"path": "fonts/a.otf", "sha256": SHA256_ABC, "role": "managed", "knownHashes": []},
+            {"sha256": SHA256_ABC},
+        ]), "mpv.conf 缺少 sha256", "input.conf 的 role 不合法", "fonts/a.otf 的 knownHashes",
+            "files[3]")
+
+    def test_paths_are_listed_once(self):
+        entry = {"path": "mpv.conf", "sha256": SHA256_ABC, "role": "config", "knownHashes": [SHA256_ABC]}
+        gone = {"path": "scripts/old.lua", "knownHashes": []}
+
+        self.assertRejected(manifest_json(files=[entry, entry]), "files 里 mpv.conf 重复")
+        self.assertRejected(manifest_json(obsolete=[gone, gone]), "obsolete 里 scripts/old.lua 重复")
+        self.assertRejected(manifest_json(files=[entry], obsolete=[{"path": "mpv.conf", "knownHashes": []}]),
+                            "同时出现在 files 和 obsolete 里")
+
+    def test_format_version_and_components_are_checked(self):
+        self.assertRejected(manifest_json(formatVersion=2), "formatVersion 应为 1")
+        self.assertRejected(manifest_json(components={}), "components")
 
 
 THIN_MPV_CONF = (
@@ -132,8 +213,8 @@ class TestCheckArchive(unittest.TestCase):
         root = self.tmp / "build"
         shutil.rmtree(root, ignore_errors=True)
         write_portable_config(root / "portable_config", portable_files)
-        manifest = build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"},
-                                  managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs)
+        manifest = json.loads(build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"},
+                                             managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs).to_bytes())
         if edit_manifest:
             edit_manifest(manifest)
         if include_manifest:
@@ -254,7 +335,7 @@ class TestCheckArchive(unittest.TestCase):
 
         self.assertFailsWith(self.make_zip(edit_manifest=add_ghost), "scripts/ghost.lua")
 
-    def test_duplicate_manifest_entry_fails(self):
+    def test_a_malformed_manifest_reports_its_structural_errors(self):
         def duplicate(m):
             m["files"].append(dict(m["files"][0]))
 
@@ -262,18 +343,16 @@ class TestCheckArchive(unittest.TestCase):
 
     def test_wrong_hash_fails(self):
         def corrupt(m):
-            next(f for f in m["files"] if f["path"] == "input.conf")["sha256"] = SHA256_ABC
+            entry = next(f for f in m["files"] if f["path"] == "input.conf")
+            entry["sha256"] = SHA256_ABC
+            entry["knownHashes"].append(SHA256_ABC)
 
         self.assertFailsWith(self.make_zip(edit_manifest=corrupt), "input.conf")
 
-    def test_invalid_or_wrong_role_fails(self):
-        def bad_role(m):
-            next(f for f in m["files"] if f["path"] == "input.conf")["role"] = "user"
-
+    def test_role_must_follow_the_role_rules(self):
         def wrong_role(m):
             next(f for f in m["files"] if f["path"] == "danmaku-history.json")["role"] = "managed"
 
-        self.assertFailsWith(self.make_zip(edit_manifest=bad_role), "input.conf")
         self.assertFailsWith(self.make_zip(edit_manifest=wrong_role), "danmaku-history.json")
 
     def test_client_entry_scripts_must_exist(self):
@@ -426,52 +505,62 @@ class TestHistory(unittest.TestCase):
 
         history = history_from_archives([("fntv-mpv-v1", old), ("fntv-mpv-v2", new)])
 
-        self.assertEqual(history["archives"], ["fntv-mpv-v1", "fntv-mpv-v2"])
-        self.assertEqual(history["files"], {
-            "mpv.conf": sorted([SHA256_ABC, SHA256_DEF]),
-            "scripts/old.lua": [SHA256_ABC],
+        self.assertEqual(history.to_dict(), {
+            "archives": ["fntv-mpv-v1", "fntv-mpv-v2"],
+            "files": {
+                "mpv.conf": sorted([SHA256_ABC, SHA256_DEF]),
+                "scripts/old.lua": [SHA256_ABC],
+            },
         })
+
+    def test_a_malformed_history_file_is_rejected(self):
+        path = self.tmp / "history.json"
+        for data in ['{"archives": []}', '{"archives": [], "files": {"mpv.conf": "abc"}}', "not json"]:
+            with self.subTest(data=data):
+                path.write_text(data, encoding="utf-8")
+                with self.assertRaisesRegex(ManifestError, "history.json"):
+                    load_history(path)
 
     def test_known_hashes_merge_history_and_removed_managed_paths_become_obsolete(self):
         portable = self.tmp / "portable_config"
         write_portable_config(portable, {"mpv.conf": b"ghi", "scripts/uosc/main.lua": b"abc"})
-        history = {"archives": ["fntv-mpv-v1"], "files": {
-            "mpv.conf": [SHA256_ABC],
-            "scripts/uosc/main.lua": [SHA256_ABC, SHA256_DEF],
-            "scripts/removed.lua": [SHA256_DEF],
-            "script-opts/removed.conf": [SHA256_DEF],
-        }}
-        previous = {"files": [
-            {"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
-             "knownHashes": [SHA256_ABC, SHA256_DEF]},
-        ], "obsolete": [{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}]}
+        history = ManifestHistory(("fntv-mpv-v1",), {
+            "mpv.conf": (SHA256_ABC,),
+            "scripts/uosc/main.lua": (SHA256_ABC, SHA256_DEF),
+            "scripts/removed.lua": (SHA256_DEF,),
+            "script-opts/removed.conf": (SHA256_DEF,),
+        })
+        previous = previous_manifest(
+            files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
+                    "knownHashes": [SHA256_ABC, SHA256_DEF]}],
+            obsolete=[{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}])
 
         manifest = build_manifest(portable, ARCHIVE_VERSION, {},
                                   known=KnownHashes.merge(history, previous))
 
-        files = {f["path"]: f for f in manifest["files"]}
-        self.assertEqual(files["mpv.conf"]["knownHashes"],
-                         sorted([SHA256_ABC, SHA256_DEF, SHA256_GHI]))
-        self.assertEqual(files["scripts/uosc/main.lua"]["knownHashes"],
-                         sorted([SHA256_ABC, SHA256_DEF]))
+        files = {f.path: f for f in manifest.files}
+        self.assertEqual(files["mpv.conf"].known_hashes,
+                         tuple(sorted([SHA256_ABC, SHA256_DEF, SHA256_GHI])))
+        self.assertEqual(files["scripts/uosc/main.lua"].known_hashes,
+                         tuple(sorted([SHA256_ABC, SHA256_DEF])))
         # 只有 managed 路径进 obsolete；删掉的 config 文件客户端一律保留
-        self.assertEqual(manifest["obsolete"], [
-            {"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]},
-            {"path": "scripts/removed.lua", "knownHashes": [SHA256_DEF]},
+        self.assertEqual([(o.path, o.known_hashes) for o in manifest.obsolete], [
+            ("scripts/gone-long-ago.lua", (SHA256_GHI,)),
+            ("scripts/removed.lua", (SHA256_DEF,)),
         ])
 
     def test_contract_fails_when_a_history_hash_is_dropped(self):
         checker = TestCheckArchive()
         checker.tmp = self.tmp
-        known = KnownHashes.merge({"archives": ["fntv-mpv-v1"], "files": {
-            "input.conf": [SHA256_ABC],
-            "scripts/removed.lua": [SHA256_DEF],
-        }})
+        known = KnownHashes.merge(ManifestHistory(("fntv-mpv-v1",), {
+            "input.conf": (SHA256_ABC,),
+            "scripts/removed.lua": (SHA256_DEF,),
+        }))
 
         def build_with_history(m):
-            m.update(build_manifest(self.tmp / "build" / "portable_config", ARCHIVE_VERSION,
-                                    {"uosc": "5.13.0"}, known=known,
-                                    managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs))
+            m.update(json.loads(build_manifest(self.tmp / "build" / "portable_config", ARCHIVE_VERSION,
+                                               {"uosc": "5.13.0"}, known=known,
+                                               managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs).to_bytes()))
 
         def drop_file_hash(m):
             build_with_history(m)
@@ -494,8 +583,8 @@ class TestHistory(unittest.TestCase):
     def test_contract_checks_previous_manifest_hashes_too(self):
         checker = TestCheckArchive()
         checker.tmp = self.tmp
-        previous = {"files": [{"path": "input.conf", "sha256": SHA256_GHI, "role": "config",
-                               "knownHashes": [SHA256_GHI]}], "obsolete": []}
+        previous = previous_manifest(files=[{"path": "input.conf", "sha256": SHA256_GHI, "role": "config",
+                                             "knownHashes": [SHA256_GHI]}])
 
         errors = contract_test(checker.make_zip(), KnownHashes.merge(previous_manifest=previous), CLIENT_LAYOUT)
 
@@ -504,16 +593,16 @@ class TestHistory(unittest.TestCase):
     def test_committed_history_covers_the_published_archives(self):
         history = load_history(PROJECT_ROOT / "manifest-history.json")
 
-        self.assertEqual(history["archives"], [
+        self.assertEqual(list(history.archives), [
             "fntv-mpv-v20260826_013404",
             "fntv-mpv-v20261108_203006",
             "fntv-mpv-v20261108_233327",
             "fntv-mpv-v20261110_224319",
             "fntv-mpv-v20261114_223600",
         ])
-        self.assertIn("scripts/uosc/main.lua", history["files"])
-        for path, hashes in history["files"].items():
-            self.assertEqual(hashes, sorted(set(hashes)), path)
+        self.assertIn("scripts/uosc/main.lua", history.files)
+        for path, hashes in history.files.items():
+            self.assertEqual(list(hashes), sorted(set(hashes)), path)
             for h in hashes:
                 self.assertRegex(h, "^[0-9a-f]{64}$")
 
@@ -662,12 +751,9 @@ class TestPackagingProducesManifest(unittest.TestCase):
         from src.previous_manifest import PreviousRelease
         from tests.test_download_manager import LATEST_TAG, FakeGithub
 
-        github = FakeGithub({"fntv-manifest.json": json.dumps({
-            "archiveVersion": LATEST_TAG,
-            "files": [{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
-                       "knownHashes": [SHA256_GHI]}],
-            "obsolete": [],
-        }).encode()})
+        github = FakeGithub({"fntv-manifest.json": manifest_json(LATEST_TAG, files=[
+            {"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
+             "knownHashes": [SHA256_DEF, SHA256_GHI]}])})
 
         result, zip_path = self.run_packaging(session=github,
                                               previous=PreviousRelease("JayYa/fntv-mpv-config"))

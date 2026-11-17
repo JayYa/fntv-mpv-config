@@ -40,11 +40,10 @@ def main() -> int:
             parser.error(f"参数应为 TAG=ZIP: {item}")
         pairs.append((tag, Path(zip_path)))
 
-    history = history_from_archives(pairs)
     history = {
         "description": "本 fork 发过的 MPV 归档中每个 portable_config 路径出现过的 sha256；"
                        "由 build_manifest_history.py 生成，只增不减",
-        **history,
+        **history_from_archives(pairs).to_dict(),
     }
     Path(args.output).write_text(
         json.dumps(history, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n"

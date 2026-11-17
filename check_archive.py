@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from src.manifest import ManifestError  # noqa: E402
 from src.package_archive import contract_test  # noqa: E402
 from src.package_config import ConfigError, load_package_config  # noqa: E402
 from src.previous_manifest import (PreviousManifestError, PreviousManifestFile,  # noqa: E402
@@ -43,7 +44,7 @@ def main() -> int:
     previous = PreviousManifestFile(Path(args.previous_manifest)) if args.previous_manifest else None
     try:
         known = load_known_hashes(args.history, previous)
-    except PreviousManifestError as e:
+    except (ManifestError, PreviousManifestError) as e:
         print(e)
         return 1
     errors = contract_test(Path(args.zip_path), known, layout, archive_version=args.archive_version,

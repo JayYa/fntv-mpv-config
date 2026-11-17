@@ -8,15 +8,14 @@ from src.download_manager import DownloadManager
 from src.previous_manifest import (PreviousManifestError, PreviousManifestFile, PreviousRelease,
                                    load_known_hashes)
 from tests.test_download_manager import API, LATEST_TAG, FakeGithub
-from tests.test_manifest import SHA256_ABC, SHA256_DEF, SHA256_GHI
+from tests.test_manifest import SHA256_ABC, SHA256_DEF, SHA256_GHI, manifest_json
 
 PROJECT_ROOT = Path(__file__).parent.parent
 REPO = "JayYa/fntv-mpv-config"
 
 
 def manifest_bytes(archive_version=LATEST_TAG, files=(), obsolete=()):
-    return json.dumps({"archiveVersion": archive_version, "files": list(files),
-                       "obsolete": list(obsolete)}).encode()
+    return manifest_json(archive_version, files=files, obsolete=obsolete)
 
 
 class TestLoadKnownHashes(unittest.TestCase):
@@ -39,7 +38,7 @@ class TestLoadKnownHashes(unittest.TestCase):
         github = FakeGithub({"mpv-package-20261115_010807.zip": b"zip",
                              "fntv-manifest.json": manifest_bytes(files=[
                                  {"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
-                                  "knownHashes": [SHA256_GHI]}])})
+                                  "knownHashes": [SHA256_DEF, SHA256_GHI]}])})
 
         known = self.from_release(github)
 
@@ -69,7 +68,7 @@ class TestLoadKnownHashes(unittest.TestCase):
             {"archives": ["v1"], "files": {"mpv.conf": [SHA256_ABC]}}).encode())
         previous = self.write("previous.json", manifest_bytes(
             files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
-                    "knownHashes": [SHA256_GHI]}],
+                    "knownHashes": [SHA256_DEF, SHA256_GHI]}],
             obsolete=[{"path": "scripts/old.lua", "knownHashes": [SHA256_ABC]}]))
 
         known = load_known_hashes(history, PreviousManifestFile(previous))
@@ -82,6 +81,13 @@ class TestLoadKnownHashes(unittest.TestCase):
         previous = self.write("previous.json", b'{"archiveVersion": "x"}')
 
         with self.assertRaisesRegex(PreviousManifestError, "files"):
+            load_known_hashes(self.history, PreviousManifestFile(previous))
+
+    def test_a_manifest_entry_without_a_hash_fails_as_a_previous_manifest_error(self):
+        previous = self.write("previous.json", manifest_bytes(
+            files=[{"path": "mpv.conf", "role": "config", "knownHashes": [SHA256_DEF]}]))
+
+        with self.assertRaisesRegex(PreviousManifestError, "mpv.conf 缺少 sha256"):
             load_known_hashes(self.history, PreviousManifestFile(previous))
 
     def test_a_manifest_file_that_is_not_json_fails(self):
