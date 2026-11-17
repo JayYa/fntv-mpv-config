@@ -146,16 +146,18 @@ class KnownHashes:
 
     @classmethod
     def load(cls, history_path: Optional[Path] = None,
-             previous_manifest_path: Optional[Path] = None) -> "KnownHashes":
+             previous_manifest_path: Optional[Path] = None,
+             previous_manifest: Optional[dict] = None) -> "KnownHashes":
         """
-        从文件读取已知哈希
+        读取历史哈希文件，并入上一版清单
 
         Args:
             history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
-            previous_manifest_path: 上一版 Release 的 fntv-manifest.json，None 时只用历史哈希
+            previous_manifest_path: 上一版清单的文件
+            previous_manifest: 已经读出的上一版清单，和 previous_manifest_path 最多给一个；
+                都不给时只用历史哈希
         """
         history = load_history(Path(history_path) if history_path else DEFAULT_HISTORY_PATH)
-        previous_manifest = None
         if previous_manifest_path:
             with open(previous_manifest_path, "r", encoding="utf-8") as f:
                 previous_manifest = json.load(f)

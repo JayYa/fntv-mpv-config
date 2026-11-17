@@ -31,6 +31,13 @@ class TestParseArgs(unittest.TestCase):
             with self.subTest(skip=skip):
                 self.assert_exits(["--result-file", "r.json", skip])
 
+    def test_previous_manifest_comes_from_a_release_or_a_file_but_not_both(self):
+        self.assertEqual(self.parse(["--previous-release", "JayYa/fntv-mpv-config"]).previous_release,
+                         "JayYa/fntv-mpv-config")
+        self.assertEqual(self.parse(["--previous-manifest", "m.json"]).previous_manifest, "m.json")
+        self.assert_exits(["--previous-release", "JayYa/fntv-mpv-config",
+                           "--previous-manifest", "m.json"])
+
     def test_deps_subset_cannot_be_packaged(self):
         self.assert_exits(["--deps", "uosc"])
         for skip in ["--skip-package", "--skip-install"]:

@@ -156,7 +156,8 @@ class TestWriteBuildResult(ReleaseTestCase):
         notes = self.tmp / "ci" / "release-notes.md"
         self.assertEqual(data, {
             "archiveVersion": "fntv-mpv-v20261115_010807",
-            "timestamp": "20261115_010807",
+            "releaseTitle": "FNTV MPV v20261115_010807",
+            "artifactName": "fntv-mpv-config-20261115_010807",
             "outputDir": str(self.result.output_dir),
             "packagePath": str(self.result.package.path),
             "manifestAssetPath": str(self.result.package.manifest_asset_path),

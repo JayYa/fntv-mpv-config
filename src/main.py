@@ -5,11 +5,13 @@
 import argparse
 import logging
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from .dependency_source import DependencySource
+from .download_manager import DownloadManager
 from .install_manager import InstallManager
 from .log_setup import setup_logging
 from .package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
@@ -42,7 +44,8 @@ class MPVConfigManager:
             cleanup: bool = True,
             package_timestamp: Optional[str] = None,
             history_path: Optional[str] = None,
-            previous_manifest_path: Optional[str] = None) -> Optional[BuildResult]:
+            previous_manifest_path: Optional[str] = None,
+            previous_release: Optional[str] = None) -> Optional[BuildResult]:
         """
         运行主流程
 
@@ -56,7 +59,9 @@ class MPVConfigManager:
             cleanup: 是否清理临时文件
             package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用当前北京时间
             history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
-            previous_manifest_path: 上一版 Release 的 fntv-manifest.json，None 时只用历史哈希
+            previous_manifest_path: 上一版清单的本地文件
+            previous_release: 从这个仓库（owner/repo）最新一版 Release 下载上一版清单；
+                与 previous_manifest_path 都是 None 时只用历史哈希
 
         Returns:
             成功时返回构建结果，失败时返回 None
@@ -72,6 +77,14 @@ class MPVConfigManager:
 
             target_dependencies = _target_dependencies(config, dependencies)
             self.logger.info(f"将处理以下依赖项: {list(target_dependencies)}")
+
+            packaging = create_package and not skip_install
+            known = None
+            if packaging:
+                if previous_manifest_path:
+                    self.logger.info(f"并入上一版清单: {previous_manifest_path}")
+                known = KnownHashes.load(history_path, previous_manifest_path,
+                                         self._latest_manifest(config, previous_release))
 
             if not skip_install:
                 installer.reset_project_dir()
@@ -92,10 +105,7 @@ class MPVConfigManager:
                 disabled_dependencies=_release_dependencies(config.disabled_dependencies),
             )
 
-            if create_package and not skip_install:
-                known = KnownHashes.load(history_path, previous_manifest_path)
-                if previous_manifest_path:
-                    self.logger.info(f"并入上一版清单: {previous_manifest_path}")
+            if packaging:
                 components = {name: entry.version for name, entry in config.enabled_dependencies.items()}
                 try:
                     package = build_package_archive(installer.output_dir, components, known,
@@ -156,6 +166,15 @@ class MPVConfigManager:
             self._installer(config).remove_project_dir()
             for path in remove_package_archives(config.output_dir):
                 self.logger.info(f"已删除文件: {path.name}")
+
+    def _latest_manifest(self, config: PackageConfig, repo_path: Optional[str]) -> Optional[dict]:
+        if not repo_path:
+            return None
+        downloader = DownloadManager(config.github_proxy, config.enable_proxy)
+        with tempfile.TemporaryDirectory() as dest_dir:
+            manifest = downloader.previous_manifest(repo_path, Path(dest_dir))
+        self.logger.info(f"并入上一版清单: {repo_path} {manifest['archiveVersion']}")
+        return manifest
 
     def _load(self) -> PackageConfig:
         return load_package_config(self.config_path, self.output_dir_override)
@@ -278,9 +297,16 @@ def create_cli_parser() -> argparse.ArgumentParser:
         help='历史哈希文件（默认: 仓库根目录的 manifest-history.json）'
     )
 
-    parser.add_argument(
+    previous = parser.add_mutually_exclusive_group()
+    previous.add_argument(
+        '--previous-release',
+        metavar='OWNER/REPO',
+        help='从这个仓库最新一版 Release 下载上一版清单，它的 knownHashes 和 obsolete 并入本次清单；'
+             '那版 Release 没有清单或清单不属于它时构建失败'
+    )
+    previous.add_argument(
         '--previous-manifest',
-        help='上一版 Release 的 fntv-manifest.json；它的 knownHashes 和 obsolete 并入本次清单'
+        help='上一版清单的本地文件；它的 knownHashes 和 obsolete 并入本次清单'
     )
 
     parser.add_argument(
@@ -353,7 +379,8 @@ def main(argv: Optional[List[str]] = None):
                 cleanup=not args.skip_cleanup,
                 package_timestamp=args.package_timestamp,
                 history_path=args.manifest_history,
-                previous_manifest_path=args.previous_manifest
+                previous_manifest_path=args.previous_manifest,
+                previous_release=args.previous_release
             )
 
             if result is None:
