@@ -83,7 +83,12 @@ class TestContractTest(ArchiveFixture):
         def duplicate(m):
             m["files"].append(dict(m["files"][0]))
 
-        self.assertFailsWith(self.make_zip(edit_manifest=duplicate), "重复")
+        zip_path = self.make_zip(edit_manifest=duplicate)
+        errors = contract_test(zip_path, KnownHashes(), CLIENT_LAYOUT, archive_version="fntv-mpv-v20990101_000000",
+                               manifest_asset=self.tmp / "nowhere.json")
+
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("重复", errors[0])
 
     def test_archive_version_must_equal_tag(self):
         self.assertFailsWith(

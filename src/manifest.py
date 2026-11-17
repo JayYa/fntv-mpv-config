@@ -1,7 +1,7 @@
 """
 MPV 归档清单 fntv-manifest.json
 
-清单放在归档根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
+清单放在安装包根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
 客户端靠它按 conffile 方式同步用户配置。格式见 JayYa/fntv-electron#219。
 
 清单的 JSON 格式只有这里知道：Manifest.parse 读入并校验结构，Manifest.to_bytes 写出。
@@ -16,6 +16,8 @@ from typing import Any, Dict, FrozenSet, Iterable, Iterator, List, Mapping, Opti
 
 MANIFEST_NAME = "fntv-manifest.json"
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
+HISTORY_DESCRIPTION = ("本 fork 发过的 MPV 归档中每个 portable_config 路径出现过的 sha256；"
+                       "由 build_manifest_history.py 生成，只增不减")
 FORMAT_VERSION = 1
 PORTABLE_CONFIG = "portable_config"
 DEFAULTS_CONF = "fntv/defaults.conf"
@@ -106,10 +108,9 @@ class Manifest:
         if not _is_str_list(managed_dirs):
             errors.add("managedDirs 应为字符串数组")
             managed_dirs = []
-        files = _parse_files(raw.get("files"), errors)
-        obsolete = _parse_obsolete(raw.get("obsolete"), {f.path for f in files}, errors)
-        if errors:
-            raise ManifestError(errors)
+        files, file_paths = _parse_files(raw.get("files"), errors)
+        obsolete = _parse_obsolete(raw.get("obsolete"), file_paths, errors)
+        errors.raise_if_any()
         return cls(archive_version=archive_version, components=dict(components),
                    managed_dirs=tuple(managed_dirs), files=files, obsolete=obsolete,
                    provides=dict(provides))
@@ -128,13 +129,17 @@ class Manifest:
         return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
-class _Errors(List[str]):
+class _Errors:
     def __init__(self, where: str):
-        super().__init__()
         self.where = where
+        self.messages: List[str] = []
 
     def add(self, message: str):
-        self.append(f"{self.where}: {message}")
+        self.messages.append(f"{self.where}: {message}")
+
+    def raise_if_any(self):
+        if self.messages:
+            raise ManifestError(self.messages)
 
 
 def _is_str(value: Any) -> bool:
@@ -145,21 +150,31 @@ def _is_str_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(v, str) for v in value)
 
 
-def _parse_files(entries: Any, errors: _Errors) -> Tuple[ManifestFile, ...]:
+def _entries_by_path(entries: Any, section: str, missing: str,
+                     errors: _Errors) -> Iterator[Tuple[str, dict]]:
+    """files / obsolete 里每条带 path 的对象，跳过不带 path 的和重复的（都记为错误）"""
     if not isinstance(entries, list):
-        errors.add("缺少 files 列表")
-        return ()
-    files: List[ManifestFile] = []
+        errors.add(missing)
+        return
     seen: Set[str] = set()
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict) or not _is_str(entry.get("path")):
-            errors.add(f"files[{i}] 应为带 path 的对象")
+            errors.add(f"{section}[{i}] 应为带 path 的对象")
             continue
         path = entry["path"]
         if path in seen:
-            errors.add(f"files 里 {path} 重复出现")
+            errors.add(f"{section} 里 {path} 重复出现")
             continue
         seen.add(path)
+        yield path, entry
+
+
+def _parse_files(entries: Any, errors: _Errors) -> Tuple[Tuple[ManifestFile, ...], Set[str]]:
+    """返回结构正确的条目，以及 files 里出现过的全部路径"""
+    files: List[ManifestFile] = []
+    paths: Set[str] = set()
+    for path, entry in _entries_by_path(entries, "files", "缺少 files 列表", errors):
+        paths.add(path)
         sha256, role, known = entry.get("sha256"), entry.get("role"), entry.get("knownHashes")
         valid = True
         if not _is_str(sha256):
@@ -173,26 +188,14 @@ def _parse_files(entries: Any, errors: _Errors) -> Tuple[ManifestFile, ...]:
             valid = False
         if valid:
             files.append(ManifestFile(path, sha256, role, tuple(known)))
-    return tuple(files)
+    return tuple(files), paths
 
 
 def _parse_obsolete(entries: Any, file_paths: Set[str], errors: _Errors) -> Tuple[ObsoleteFile, ...]:
-    if not isinstance(entries, list):
-        errors.add("obsolete 应为数组")
-        return ()
     obsolete: List[ObsoleteFile] = []
-    seen: Set[str] = set()
-    for i, entry in enumerate(entries):
-        if not isinstance(entry, dict) or not _is_str(entry.get("path")):
-            errors.add(f"obsolete[{i}] 应为带 path 的对象")
-            continue
-        path = entry["path"]
+    for path, entry in _entries_by_path(entries, "obsolete", "obsolete 应为数组", errors):
         if path in file_paths:
             errors.add(f"{path} 同时出现在 files 和 obsolete 里")
-        if path in seen:
-            errors.add(f"obsolete 里 {path} 重复出现")
-            continue
-        seen.add(path)
         known = entry.get("knownHashes")
         if not _is_str_list(known):
             errors.add(f"obsolete 里 {path} 的 knownHashes 应为字符串数组")
@@ -202,7 +205,7 @@ def _parse_obsolete(entries: Any, file_paths: Set[str], errors: _Errors) -> Tupl
 
 
 def write_manifest(archive_root: Path, manifest: Manifest) -> Path:
-    """把清单写到归档根目录（与 mpv.exe、portable_config 同级）"""
+    """把清单写到安装包根目录（与 mpv.exe、portable_config 同级）"""
     path = Path(archive_root) / MANIFEST_NAME
     path.write_bytes(manifest.to_bytes())
     return path
@@ -246,9 +249,13 @@ class ManifestHistory:
     archives: Tuple[str, ...] = ()
     files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
 
-    def to_dict(self) -> dict:
-        return {"archives": list(self.archives),
-                "files": {path: list(hashes) for path, hashes in self.files.items()}}
+    def to_bytes(self) -> bytes:
+        data = {
+            "description": HISTORY_DESCRIPTION,
+            "archives": list(self.archives),
+            "files": {path: list(hashes) for path, hashes in self.files.items()},
+        }
+        return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
 def load_history(path: Path) -> ManifestHistory:
@@ -269,8 +276,7 @@ def load_history(path: Path) -> ManifestHistory:
         errors.add("archives 应为字符串数组")
     if not (isinstance(files, dict) and all(_is_str_list(h) for h in files.values())):
         errors.add("files 应为对象，值为 sha256 数组")
-    if errors:
-        raise ManifestError(errors)
+    errors.raise_if_any()
     return ManifestHistory(tuple(archives), {p: tuple(h) for p, h in files.items()})
 
 

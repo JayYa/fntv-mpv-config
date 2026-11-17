@@ -161,6 +161,9 @@ class TestParseManifest(unittest.TestCase):
         self.assertRejected(manifest_json(obsolete=[gone, gone]), "obsolete 里 scripts/old.lua 重复")
         self.assertRejected(manifest_json(files=[entry], obsolete=[{"path": "mpv.conf", "knownHashes": []}]),
                             "同时出现在 files 和 obsolete 里")
+        broken = {"path": "mpv.conf", "role": "config", "knownHashes": []}
+        self.assertRejected(manifest_json(files=[broken], obsolete=[{"path": "mpv.conf", "knownHashes": []}]),
+                            "mpv.conf 缺少 sha256", "同时出现在 files 和 obsolete 里")
 
     def test_format_version_and_components_are_checked(self):
         self.assertRejected(manifest_json(formatVersion=2), "formatVersion 应为 1")
@@ -267,13 +270,15 @@ class TestHistory(unittest.TestCase):
 
         history = history_from_archives([("fntv-mpv-v1", old), ("fntv-mpv-v2", new)])
 
-        self.assertEqual(history.to_dict(), {
-            "archives": ["fntv-mpv-v1", "fntv-mpv-v2"],
-            "files": {
-                "mpv.conf": sorted([SHA256_ABC, SHA256_DEF]),
-                "scripts/old.lua": [SHA256_ABC],
-            },
-        })
+        self.assertEqual(history, ManifestHistory(("fntv-mpv-v1", "fntv-mpv-v2"), {
+            "mpv.conf": tuple(sorted([SHA256_ABC, SHA256_DEF])),
+            "scripts/old.lua": (SHA256_ABC,),
+        }))
+
+    def test_the_committed_history_file_is_written_back_byte_for_byte(self):
+        committed = PROJECT_ROOT / "manifest-history.json"
+
+        self.assertEqual(load_history(committed).to_bytes(), committed.read_bytes())
 
     def test_a_malformed_history_file_is_rejected(self):
         path = self.tmp / "history.json"

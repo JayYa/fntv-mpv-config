@@ -1,7 +1,7 @@
 """契约测试：发版前对安装包与清单做的一致性检查"""
 import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Set
 
 from .dependency_layout import DependencyLayout
 from .manifest import (DEFAULTS_CONF, MANIFEST_NAME, PORTABLE_CONFIG, PROVIDES, KnownHashes, Manifest,
@@ -37,18 +37,10 @@ def contract_test(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
     Returns:
         错误列表，空列表表示通过
     """
-    errors = _check_archive(Path(zip_path), known, layout, archive_version)
-    if manifest_asset is not None:
-        errors += _check_manifest_asset(Path(zip_path), Path(manifest_asset))
-    return errors
-
-
-def _check_archive(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
-                   archive_version: Optional[str]) -> List[str]:
     with zipfile.ZipFile(zip_path) as z:
         names = {n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")}
         if MANIFEST_NAME not in names:
-            return [f"归档根目录缺少 {MANIFEST_NAME}"]
+            return [f"安装包根目录缺少 {MANIFEST_NAME}"]
         manifest_bytes = z.read(MANIFEST_NAME)
         portable = dict(portable_config_entries(z))
     try:
@@ -56,6 +48,14 @@ def _check_archive(zip_path: Path, known: KnownHashes, layout: DependencyLayout,
     except ManifestError as e:
         return e.errors
 
+    errors = _check_archive(manifest, names, portable, known, layout, archive_version)
+    if manifest_asset is not None:
+        errors += _check_manifest_asset(manifest_bytes, Path(manifest_asset))
+    return errors
+
+
+def _check_archive(manifest: Manifest, names: Set[str], portable: Dict[str, bytes], known: KnownHashes,
+                   layout: DependencyLayout, archive_version: Optional[str]) -> List[str]:
     errors: List[str] = []
     if "mpv.conf" in portable and DEFAULTS_CONF in portable:
         errors.extend(_check_mpv_conf_layering(portable["mpv.conf"], portable[DEFAULTS_CONF]))
@@ -110,14 +110,11 @@ def _check_known_hashes_kept(manifest: Manifest, known: KnownHashes) -> List[str
     return errors
 
 
-def _check_manifest_asset(zip_path: Path, asset_path: Path) -> List[str]:
+def _check_manifest_asset(manifest_bytes: bytes, asset_path: Path) -> List[str]:
     if not asset_path.is_file():
         return [f"Release 要上传的 {MANIFEST_NAME} 不存在: {asset_path}"]
-    with zipfile.ZipFile(zip_path) as z:
-        if MANIFEST_NAME not in z.namelist():
-            return [f"安装包根目录缺少 {MANIFEST_NAME}"]
-        if asset_path.read_bytes() != z.read(MANIFEST_NAME):
-            return [f"Release 要上传的 {asset_path} 与 zip 里的 {MANIFEST_NAME} 不同"]
+    if asset_path.read_bytes() != manifest_bytes:
+        return [f"Release 要上传的 {asset_path} 与 zip 里的 {MANIFEST_NAME} 不同"]
     return []
 
 
