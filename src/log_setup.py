@@ -1,6 +1,3 @@
-"""
-把根日志器设成输出到标准输出
-"""
 import logging
 import sys
 

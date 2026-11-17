@@ -76,7 +76,7 @@ class DependencySource:
         archive_dir = self._archive_dir(name)
         archive_dir.mkdir(parents=True, exist_ok=True)
         if self._downloader is None:
-            self._downloader = DownloadManager(self.proxy_url, self.enable_proxy)
+            self._downloader = DownloadManager(asset_proxy_url=self.proxy_url, enable_proxy=self.enable_proxy)
         archive = self._downloader.download(name, release, archive_dir)
         for stale in archive_dir.iterdir():
             if stale.is_file() and stale != archive:

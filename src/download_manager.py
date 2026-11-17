@@ -1,8 +1,3 @@
-"""
-从 GitHub Release 下载依赖的压缩包
-
-选哪个资产只在这里决定：读 Release 的资产列表，选出唯一的那个，选不出就失败，不猜文件名。
-"""
 import logging
 import os
 from pathlib import Path
@@ -30,7 +25,7 @@ def github_api_headers() -> Dict[str, str]:
 
 
 class DownloadError(Exception):
-    """下载失败"""
+    pass
 
 
 class Asset(NamedTuple):
@@ -40,15 +35,9 @@ class Asset(NamedTuple):
 
 
 class DownloadManager:
-    def __init__(self, proxy_url: str = "", enable_proxy: bool = False,
+    def __init__(self, asset_proxy_url: str = "", enable_proxy: bool = False,
                  session: Optional[requests.Session] = None):
-        """
-        Args:
-            proxy_url: GitHub 代理地址，只用于下载资产，不用于 API
-            enable_proxy: 是否启用代理
-            session: 替换 HTTP 会话（测试用）
-        """
-        self.proxy_url = proxy_url.rstrip('/')
+        self.asset_proxy_url = asset_proxy_url.rstrip('/')
         self.enable_proxy = enable_proxy
         self.session = session or requests.Session()
         self.logger = logging.getLogger(__name__)
@@ -86,12 +75,11 @@ class DownloadManager:
                 for a in response.json().get("assets", [])]
 
     def _proxied(self, url: str) -> str:
-        if self.enable_proxy and self.proxy_url:
-            return f"{self.proxy_url}/{url}"
+        if self.enable_proxy and self.asset_proxy_url:
+            return f"{self.asset_proxy_url}/{url}"
         return url
 
     def _download_file(self, url: str, file_path: Path, expected_size: int):
-        """先写到 .part，大小对上再改名，中断的下载不会被当成已下载"""
         partial = file_path.with_name(file_path.name + ".part")
         try:
             response = self.session.get(url, stream=True, timeout=DOWNLOAD_TIMEOUT)

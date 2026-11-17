@@ -39,8 +39,6 @@ class FakeResponse:
 
 
 class FakeGithub:
-    """假的 requests.Session：API 返回给定的资产列表，下载返回给定的内容"""
-
     def __init__(self, files, api_status=200, served=None):
         self.files = files
         self.api_status = api_status
@@ -161,7 +159,7 @@ class TestDownloadManager(unittest.TestCase):
     def test_proxy_applies_to_the_download_but_not_the_api(self):
         github = FakeGithub({"uosc.zip": b"zip"})
 
-        self.download(github, UOSC, proxy_url="https://proxy.example/", enable_proxy=True)
+        self.download(github, UOSC, asset_proxy_url="https://proxy.example/", enable_proxy=True)
 
         api_url, download_url = (url for url, _ in github.calls)
         self.assertTrue(api_url.startswith(API))

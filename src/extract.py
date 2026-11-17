@@ -1,8 +1,3 @@
-"""
-按扩展名解压依赖的压缩包
-
-py7zr、rarfile 在用到时才导入，打包配置导入这里只为拿 ARCHIVE_FORMATS
-"""
 import logging
 import shutil
 import subprocess
@@ -10,6 +5,8 @@ import tarfile
 import zipfile
 from pathlib import Path
 from typing import Optional
+
+import py7zr
 
 SEVEN_ZIP_CANDIDATES = (
     r"C:\Program Files\7-Zip\7z.exe",
@@ -21,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExtractError(Exception):
-    """解压失败"""
+    pass
 
 
 def _extract_zip(archive_path: Path, extract_to: Path):
@@ -35,7 +32,6 @@ def _extract_tar(archive_path: Path, extract_to: Path):
 
 
 def _extract_7z(archive_path: Path, extract_to: Path):
-    import py7zr
     try:
         # 传文件对象而不是路径：传路径时 py7zr 并行解压，会按文件名另开一个不关闭的句柄，
         # 解压报错（如 BCJ2）后它要等 GC 才释放，Windows 上 temp 就删不掉
@@ -83,7 +79,6 @@ ARCHIVE_FORMATS_TEXT = ", ".join(ARCHIVE_FORMATS)
 
 
 def archive_format(path: Path) -> Optional[str]:
-    """按扩展名认出压缩格式（ARCHIVE_FORMATS 之一），认不出时返回 None"""
     name = path.name.lower()
     matches = [f for f in ARCHIVE_FORMATS if name.endswith("." + f)]
     return max(matches, key=len) if matches else None
