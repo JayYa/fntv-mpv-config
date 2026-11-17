@@ -100,6 +100,17 @@ class TestLoadPackageConfig(unittest.TestCase):
             with self.subTest(pattern=pattern):
                 self.assertRejected(pattern, dependencies={"dep": dep})
 
+    def test_unsupported_archive_formats_are_rejected(self):
+        (self.tmp / "plugin.lua").write_text("--")
+        cases = {
+            "format 只能是": {**UOSC, "format": "gz"},
+            "不是支持的压缩包": {"name": "x", "version": "local", "local_path": "plugin.lua",
+                          "install_to": "."},
+        }
+        for pattern, dep in cases.items():
+            with self.subTest(pattern=pattern):
+                self.assertRejected(pattern, dependencies={"dep": dep})
+
     def test_bad_dependency_entries_are_rejected(self):
         (self.tmp / "plugin").mkdir()
         local = {"name": "x", "version": "local", "local_path": "plugin", "install_to": "."}

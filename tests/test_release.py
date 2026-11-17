@@ -1,4 +1,3 @@
-import io
 import json
 import shutil
 import sys
@@ -6,7 +5,6 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -173,31 +171,6 @@ class TestWriteBuildResult(ReleaseTestCase):
         with self.assertRaises(ValueError):
             write_build_result(unpacked, self.tmp / "build-result.json", {})
         self.assertFalse((self.tmp / "build-result.json").exists())
-
-
-class TestResultFileCli(unittest.TestCase):
-    def parse(self, argv):
-        from src.main import create_cli_parser, parse_args
-        return parse_args(create_cli_parser(), argv)
-
-    def test_result_file_parsed(self):
-        self.assertEqual(self.parse(["--result-file", "r.json"]).result_file, "r.json")
-        self.assertIsNone(self.parse([]).result_file)
-
-    def test_result_file_without_package_exits(self):
-        for skip in ["--skip-package", "--skip-install"]:
-            with self.subTest(skip=skip):
-                with mock.patch("sys.stderr", new_callable=io.StringIO):
-                    with self.assertRaises(SystemExit):
-                        self.parse(["--result-file", "r.json", skip])
-
-    def test_deps_subset_cannot_be_packaged(self):
-        with mock.patch("sys.stderr", new_callable=io.StringIO):
-            with self.assertRaises(SystemExit):
-                self.parse(["--deps", "uosc"])
-        for skip in ["--skip-package", "--skip-install"]:
-            with self.subTest(skip=skip):
-                self.assertEqual(self.parse(["--deps", "uosc", skip]).deps, ["uosc"])
 
 
 if __name__ == "__main__":

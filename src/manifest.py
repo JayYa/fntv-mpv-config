@@ -58,7 +58,7 @@ class ManifestError(Exception):
 def write_manifest(archive_root: Path, manifest: dict) -> Path:
     """把清单写到归档根目录（与 mpv.exe、portable_config 同级）"""
     path = Path(archive_root) / MANIFEST_NAME
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return path
 
 
