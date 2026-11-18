@@ -64,16 +64,20 @@ class TestLoadLayout(unittest.TestCase):
         with self.assertRaisesRegex(LayoutError, "plugin"):
             self.load({"plugin": {"install_to": ".", "exclude_files": ["doc/"]}})
 
-    def test_managed_dir_must_be_in_portable_config_and_hold_the_entry(self):
+    def test_managed_dir_must_be_in_portable_config(self):
+        with self.assertRaisesRegex(LayoutError, "plugin 的 managed_dir 必须在 portable_config/ 下"):
+            self.load({"plugin": {"install_to": "portable_config/scripts/a",
+                                  "entry": "scripts/a/main.lua", "managed_dir": "scripts/a"}})
+
+    def test_managed_dir_must_hold_the_entry(self):
         bad = [
             {"entry": "portable_config/scripts/a/main.lua", "managed_dir": "portable_config/scripts/b"},
             {"entry": "portable_config/scripts/ab/main.lua", "managed_dir": "portable_config/scripts/a"},
             {"managed_dir": "portable_config/scripts/a"},
-            {"entry": "mpv.exe", "managed_dir": "."},
         ]
         for extra in bad:
             with self.subTest(extra=extra):
-                with self.assertRaisesRegex(LayoutError, "plugin"):
+                with self.assertRaisesRegex(LayoutError, "plugin 的 managed_dir .* 必须包含它的 entry"):
                     self.load({"plugin": {"install_to": "portable_config/scripts/a", **extra}})
 
     def test_paths_stay_inside_the_package_archive(self):
