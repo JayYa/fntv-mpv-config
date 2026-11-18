@@ -142,7 +142,7 @@ class TestLoadLayout(unittest.TestCase):
             ({"uosc": {**uosc, "config_roles": {"script-opts/*.conf": "user"}}}, {}, "uosc"),
             ({"uosc": {**uosc, "config_roles": {"nothing.conf": "seed"}}}, {}, "nothing.conf"),
             ({"uosc": {**uosc, "config_roles": ["script-opts/*.conf"]}}, {}, "uosc"),
-            ({"uosc": uosc}, {"mpv.conf/": "managed"}, "base"),
+            ({"uosc": uosc}, {"mpv.conf/": "managed"}, "base_config_roles 不支持.*以 / 结尾"),
             ({"uosc": uosc}, {"shaders/**": "managed"}, "shaders"),
         ]
         for dependencies, base_roles, fragment in bad:

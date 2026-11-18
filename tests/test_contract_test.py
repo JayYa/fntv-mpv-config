@@ -276,6 +276,8 @@ class TestCheckArchiveCommandLine(ArchiveFixture):
 
         self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
         self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("不存在", missing.stdout)
+        self.assertNotIn("Traceback", missing.stderr)
         self.assertNotEqual(different.returncode, 0)
         self.assertIn("fntv-manifest.json", different.stdout)
 
