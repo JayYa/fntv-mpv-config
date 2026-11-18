@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.contract_test import contract_test
-from src.manifest import KnownHashes, ManifestHistory, build_manifest
+from src.manifest import HistoryFile, KnownHashes, ManifestHistory, build_manifest
 from tests.test_manifest import (ARCHIVE_VERSION, CLIENT_LAYOUT, PROJECT_ROOT, SHA256_ABC, SHA256_DEF,
                                  SHA256_EMPTY, SHA256_GHI, THIN_MPV_CONF, VALID_PORTABLE_CONFIG,
                                  previous_manifest, write_portable_config)
@@ -31,8 +31,7 @@ class ArchiveFixture(unittest.TestCase):
         shutil.rmtree(root, ignore_errors=True)
         write_portable_config(root / "portable_config", portable_files)
         manifest = json.loads(build_manifest(root / "portable_config", ARCHIVE_VERSION, {"uosc": "5.13.0"},
-                                             known=known,
-                                             managed_dirs=CLIENT_LAYOUT.manifest_managed_dirs).to_bytes())
+                                             CLIENT_LAYOUT, known=known).to_bytes())
         if edit_manifest:
             edit_manifest(manifest)
         if include_manifest:
@@ -113,11 +112,20 @@ class TestContractTest(ArchiveFixture):
 
         self.assertFailsWith(self.make_zip(edit_manifest=corrupt), "input.conf")
 
-    def test_role_must_follow_the_role_rules(self):
+    def test_files_in_managed_dirs_must_be_managed(self):
         def wrong_role(m):
-            next(f for f in m["files"] if f["path"] == "danmaku-history.json")["role"] = "managed"
+            next(f for f in m["files"] if f["path"] == "scripts/uosc/main.lua")["role"] = "config"
 
-        self.assertFailsWith(self.make_zip(edit_manifest=wrong_role), "danmaku-history.json")
+        self.assertFailsWith(self.make_zip(edit_manifest=wrong_role), "scripts/uosc/main.lua")
+
+    def test_every_managed_dir_holds_a_client_entry(self):
+        def add_dir(m):
+            m["managedDirs"].append("fonts")
+
+        zip_path = self.make_zip(edit_manifest=add_dir,
+                                 portable_files=dict(VALID_PORTABLE_CONFIG, **{"fonts/a.otf": b""}))
+
+        self.assertFailsWith(zip_path, "fonts")
 
     def test_client_entry_scripts_must_exist(self):
         files = dict(VALID_PORTABLE_CONFIG)
@@ -181,8 +189,8 @@ class TestContractTest(ArchiveFixture):
 class TestKnownHashesKept(ArchiveFixture):
     def test_contract_fails_when_a_history_hash_is_dropped(self):
         known = KnownHashes.merge(ManifestHistory(("fntv-mpv-v1",), {
-            "input.conf": (SHA256_ABC,),
-            "scripts/removed.lua": (SHA256_DEF,),
+            "input.conf": HistoryFile("config", (SHA256_ABC,)),
+            "scripts/removed.lua": HistoryFile("managed", (SHA256_DEF,)),
         }))
 
         def drop_file_hash(m):

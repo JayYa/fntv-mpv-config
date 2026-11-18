@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Set
 
 from .dependency_layout import DependencyLayout
 from .manifest import (DEFAULTS_CONF, MANIFEST_NAME, PORTABLE_CONFIG, PROVIDES, KnownHashes, Manifest,
-                       ManifestError, portable_config_entries, role_of, sha256_bytes)
+                       ManifestError, portable_config_entries, sha256_bytes)
 
 # mpv.conf 分层：默认值在托管的 fntv/defaults.conf 的 [fntv-defaults] 段里，
 # 薄 mpv.conf 的前两个有效行是 include 它和 profile=fntv-defaults，用户设置写在后面。
@@ -69,14 +69,13 @@ def _check_archive(manifest: Manifest, names: Set[str], portable: Dict[str, byte
     for d in layout.manifest_managed_dirs:
         if d not in manifest.managed_dirs:
             errors.append(f"managedDirs 缺少 {d}")
+    errors.extend(_check_managed_dirs(manifest, layout))
 
     for f in manifest.files:
         if f.path not in portable:
             errors.append(f"清单列出的 {f.path} 不在 zip 的 {PORTABLE_CONFIG} 里")
         elif f.sha256 != sha256_bytes(portable[f.path]):
             errors.append(f"{f.path} 的 sha256 与 zip 内容不符")
-        if f.role != role_of(f.path):
-            errors.append(f"{f.path} 的 role 应为 {role_of(f.path)!r}，实际为 {f.role!r}")
 
     listed = {f.path for f in manifest.files}
     for path in sorted(set(portable) - listed):
@@ -87,6 +86,19 @@ def _check_archive(manifest: Manifest, names: Set[str], portable: Dict[str, byte
             errors.append(f"缺少客户端依赖的路径 {path}")
 
     errors.extend(_check_known_hashes_kept(manifest, known))
+    return errors
+
+
+def _check_managed_dirs(manifest: Manifest, layout: DependencyLayout) -> List[str]:
+    errors = []
+    prefix = PORTABLE_CONFIG + "/"
+    entries = [path[len(prefix):] for path in layout.required_paths if path.startswith(prefix)]
+    for d in manifest.managed_dirs:
+        if not any(entry.startswith(d + "/") for entry in entries):
+            errors.append(f"托管目录 {d} 里没有任何客户端依赖的入口文件，客户端会整体替换它")
+        for f in manifest.files:
+            if f.path.startswith(d + "/") and f.role != "managed":
+                errors.append(f"{f.path} 在托管目录 {d} 里，role 应为 'managed'，实际为 {f.role!r}")
     return errors
 
 

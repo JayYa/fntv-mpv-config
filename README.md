@@ -72,7 +72,6 @@ fntv-mpv-config/
 ├── run.py                 # 运行脚本
 ├── run_tests.py           # 测试运行器
 ├── check_archive.py       # 对打包出的 zip 跑契约测试
-├── build_manifest_history.py # 生成 manifest-history.json
 └── README.md              # 文档
 ```
 
@@ -235,7 +234,7 @@ python run.py --clean all       # 两者都删
 ### 注意事项
 - 支持所有网络下载支持的格式（zip、7z、rar等）
 - 文件夹方式支持直接指向已解压的目录
-- 依赖布局字段（install_to、custom_install_rules、exclude_files、entry、managed_dir）完全相同
+- 依赖布局字段（install_to、custom_install_rules、exclude_files、entry、managed_dir、config_roles）完全相同
 - 本地压缩包直接解压到 `temp/<名称>/content/`，不先复制
 - 本地文件夹直接作为内容目录安装，不复制、不解压
 
@@ -303,6 +302,7 @@ python run.py --clean all       # 两者都删
 - `exclude_files`: 排除文件数组，只能和 `install_to` 一起用；和 `custom_install_rules` 一起写会报错，排除要写进规则的 `exclude`
 - `entry`: 客户端离不开的入口文件（可选）。契约测试要求每个启用的依赖的 `entry` 都在安装包里；停用的依赖不要求
 - `managed_dir`: 客户端整体替换的目录（可选），必须在 `portable_config/` 下并包含 `entry`，写进清单的 `managedDirs`
+- `config_roles`: `custom_config/<依赖项名>/` 里不是 `config` 的文件（可选），模式到 `managed` 或 `seed` 的对象，见[归档清单](#归档清单-fntv-manifestjson)
 - `name`、`version`: 所有依赖必填的非空字符串；`name` 是显示名，写进 Release 说明
 - `url` 和 `local_path` 必须且只能写一个，决定依赖来源。`url` 必须是 `https://github.com/<owner>/<repo>/releases`，不能写本地路径
 - `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，先找名字等于 `<filename_pattern>.<format>` 的资产，没有时取唯一一个以 `filename_pattern` 开头、以 `.<format>` 结尾的资产。一个都没有、有不止一个，或 API 请求失败（如 403 限流）时构建失败，报错里列出现有资产或 HTTP 状态，不会猜文件名。`filename_pattern` 可含 `{version}` 占位符。`format` 只能是 `zip`、`7z`、`rar`、`tar`、`tar.gz`、`tar.bz2`、`tar.xz`，加载时校验；本地压缩包的扩展名也按这组格式校验。temp 里已有同名、大小与 Release 资产一致的文件时不重复下载
@@ -319,7 +319,7 @@ python run.py --clean all       # 两者都删
 
 覆盖值只作用于本次运行，不会写回配置文件。`--clean output` 同样按这个顺序确定要清理的目录。
 
-`config` 里的 `output_dir`、`temp_dir`、`custom_config_dir` 必填，相对路径按 `package_cfg.json` 所在目录解析；`--output-dir` 和环境变量按当前工作目录解析。`github_proxy`、`enable_proxy` 可不写。顶层只能写 `name`（必填）、`version`、`description`、`config`、`dependencies`。
+`config` 里的 `output_dir`、`temp_dir`、`custom_config_dir` 必填，相对路径按 `package_cfg.json` 所在目录解析；`--output-dir` 和环境变量按当前工作目录解析。`github_proxy`、`enable_proxy` 可不写。顶层只能写 `name`（必填）、`version`、`description`、`config`、`base_config_roles`、`dependencies`。
 
 #### exclude_files 排除模式
 
@@ -451,7 +451,7 @@ python run.py --clean all       # 两者都删
 
 `custom_config/base/` 是基础配置：不属于任何依赖，每次构建都按原相对路径复制进 portable_config 目录。`custom_config/<依赖项名>/` 下放跟着某个依赖走的配置，安装该依赖后复制进去。两份配置要装到同一个路径时加载就报错，不会悄悄覆盖；依赖项也不能叫 `base`。没有对应依赖项的子目录不会被复制，`custom_config` 根目录下也不要放散文件（测试会检查）。
 
-这些文件在三个平台上都会同步到用户的 mpv 配置目录，写法要兼容三个平台，见[平台差异](#平台差异)。新增文件还要先在 `src/manifest.py` 的 `ROLE_RULES` 里有归属，见[归档清单](#归档清单-fntv-manifestjson)。
+这些文件在三个平台上都会同步到用户的 mpv 配置目录，写法要兼容三个平台，见[平台差异](#平台差异)。新增文件默认归属 `config`（用户可改）；要托管或只放一次，在 `base_config_roles` 或依赖的 `config_roles` 里声明，见[归档清单](#归档清单-fntv-manifestjson)。
 
 ### 目录结构
 
@@ -500,8 +500,8 @@ custom_config/
 归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，格式和生成的代码在 `src/manifest.py`，契约测试在 `src/contract_test.py`。
 
 - `files[]` 列出 `portable_config` 下的每个文件：相对路径、`sha256`、`role`、`knownHashes`。
-- 归属（`role`）：`scripts/**`、`fonts/**`、`shaders/**`、`fntv/defaults.conf` 是 `managed`；`mpv.conf`、`input.conf`、`script-opts/*.conf` 是 `config`；`danmaku-history.json` 是 `seed`。新增文件如果不在这些规则里，打包会失败，要先在 `src/manifest.py` 的 `ROLE_RULES` 里给它定归属。
-- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release，由 `build_manifest_history.py` 生成，复现方法见脚本开头），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 用 `--previous-release` 自动下载；本地可用 `--previous-manifest` 指定文件）。
+- 归属（`role`）按文件的来源定：依赖装进来的文件都是 `managed`；`custom_config` 里的文件默认是 `config`，例外按模式声明在 `package_cfg.json` 顶层的 `base_config_roles`（基础配置）和各依赖的 `config_roles` 里，值只能是 `managed` 或 `seed`。现在声明的有：`fntv/defaults.conf`、`shaders/**` 是 `managed`，`danmaku-history.json` 是 `seed`。每个模式至少要命中一个文件；托管目录里的 custom_config 文件必须声明为 `managed`，否则加载配置时报错。
+- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release 里每个路径的哈希和归属；这些 Release 不会再有，文件已冻结），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 用 `--previous-release` 自动下载；本地可用 `--previous-manifest` 指定文件）。
 - `obsolete`：历史里出现过、本次没有的托管路径，带它们的 `knownHashes`。删掉的 `config` 文件不进 `obsolete`，客户端一律保留。
 
 ### mpv.conf 分层
@@ -519,7 +519,7 @@ profile=fntv-defaults
 
 ### 契约测试
 
-打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、每个依赖声明的 `entry`（含根目录的 `mpv.exe`）和基础配置的 `mpv.conf`、`fntv/defaults.conf` 都在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip（入口文件和托管目录默认从仓库的 `package_cfg.json` 读，`--config` 换别的配置）：
+打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、`managedDirs` 里的文件都是 `managed` 且每个托管目录含一个入口文件、每个依赖声明的 `entry`（含根目录的 `mpv.exe`）和基础配置的 `mpv.conf`、`fntv/defaults.conf` 都在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip（入口文件和托管目录默认从仓库的 `package_cfg.json` 读，`--config` 换别的配置）：
 
 ```bash
 python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json] [--config package_cfg.json]
@@ -570,12 +570,12 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段
 2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 `download_manager.py`（选出唯一的 Release 资产并下载，HTTP 会话可注入）和 `extract.py`（按扩展名解压）
-3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件。安装、清单的 `managedDirs` 和契约测试的必需路径都从它来
+3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件及其归属。安装、清单的归属和 `managedDirs`、契约测试的必需路径都从它来
 4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
 5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
 6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试，不通过时抛 `ContractTestFailed`
 7. **contract_test.py**: `contract_test(安装包, 已知哈希, 依赖布局)` 是契约测试的唯一入口，返回全部错误；`build_package_archive` 和 `check_archive.py` 都调用它
-8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有归属规则、历史哈希（`load_history`、`history_from_archives`）和已知哈希的合并
+8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有历史哈希（`load_history`）和已知哈希的合并。`build_manifest` 向依赖布局要每个文件的归属和 `managedDirs`
 9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`run()` 和 `check_archive.py` 都经它取已知哈希
 
 ### 扩展性
@@ -763,7 +763,7 @@ A: 在`package_cfg.json`的`dependencies`中添加新的插件配置。对于简
 A: 确认配置文件放在正确的`custom_config`目录结构中，并且文件名和路径正确。
 
 ### Q: GitHub Actions构建失败？
-A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。日志里有“契约测试失败”时，按列出的条目改归档内容，常见原因是新增文件没有在 `ROLE_RULES` 里定归属。
+A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。日志里有“契约测试失败”时，按列出的条目改归档内容，常见原因是入口文件缺失或托管目录里的文件归属不对。
 
 ### Q: 排除模式不生效怎么办？
 A: 

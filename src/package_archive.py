@@ -94,8 +94,7 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
     project_dir = Path(project_dir).resolve()
     archive_version = f"fntv-mpv-v{timestamp}"
 
-    manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, known,
-                              managed_dirs=layout.manifest_managed_dirs)
+    manifest = build_manifest(project_dir / PORTABLE_CONFIG, archive_version, components, layout, known)
     write_manifest(project_dir, manifest)
     zip_path = project_dir.parent / f"{PACKAGE_ARCHIVE_PREFIX}{timestamp}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:

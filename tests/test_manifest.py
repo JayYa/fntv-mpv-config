@@ -8,9 +8,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.dependency_layout import load_layout
-from src.manifest import (KnownHashes, Manifest, ManifestError, ManifestHistory, build_manifest,
-                          history_from_archives, load_history)
+from src.package_config import load_package_config
+from src.manifest import (HistoryFile, KnownHashes, Manifest, ManifestError, ManifestHistory, build_manifest,
+                          load_history)
 
 
 # sha256 的已知值（独立来源：FIPS 180-2 附录 B.1 的 "abc"，以及空串）
@@ -50,13 +50,13 @@ class TestBuildManifest(unittest.TestCase):
             self.portable,
             archive_version="fntv-mpv-v20261114_235959",
             components={"uosc": "5.13.0", "smart_skip": "local"},
-            managed_dirs=["scripts/uosc", "scripts/smart_skip"],
+            layout=CLIENT_LAYOUT,
         )
 
         self.assertEqual(manifest.archive_version, "fntv-mpv-v20261114_235959")
         self.assertEqual(manifest.components, {"uosc": "5.13.0", "smart_skip": "local"})
         self.assertEqual(manifest.provides, {"smart-skip.origin-from-play-url": 1})
-        self.assertEqual(manifest.managed_dirs, ("scripts/uosc", "scripts/smart_skip"))
+        self.assertEqual(manifest.managed_dirs, ("scripts/uosc", "scripts/uosc_danmaku", "scripts/smart_skip"))
         self.assertEqual(manifest.obsolete, ())
 
         files = {f.path: f for f in manifest.files}
@@ -77,16 +77,9 @@ class TestBuildManifest(unittest.TestCase):
         self.assertEqual(files["mpv.conf"].sha256, SHA256_ABC)
         self.assertEqual(files["mpv.conf"].known_hashes, (SHA256_ABC,))
 
-    def test_file_without_a_role_is_rejected(self):
-        write_portable_config(self.portable, {"mpv.conf": b"", "notes.txt": b""})
-
-        with self.assertRaisesRegex(ManifestError, "notes.txt"):
-            build_manifest(self.portable, "fntv-mpv-v20261114_235959", {})
-
     def test_written_bytes_parse_back_to_the_same_manifest(self):
         write_portable_config(self.portable, {"mpv.conf": b"abc", "scripts/uosc/main.lua": b""})
-        manifest = build_manifest(self.portable, ARCHIVE_VERSION, {"uosc": "5.13.0"},
-                                  managed_dirs=["scripts/uosc"])
+        manifest = build_manifest(self.portable, ARCHIVE_VERSION, {"uosc": "5.13.0"}, CLIENT_LAYOUT)
 
         data = manifest.to_bytes()
 
@@ -187,10 +180,7 @@ VALID_PORTABLE_CONFIG = {
 
 ARCHIVE_VERSION = "fntv-mpv-v20261114_235959"
 
-CLIENT_LAYOUT = load_layout(
-    json.loads((Path(__file__).parent.parent / "package_cfg.json").read_text(encoding="utf-8"))["dependencies"],
-    Path(__file__).parent.parent / "custom_config",
-)
+CLIENT_LAYOUT = load_package_config(Path(__file__).parent.parent / "package_cfg.json").archive_layout
 
 
 class TestShippedMpvConf(unittest.TestCase):
@@ -237,7 +227,7 @@ SHA256_GHI = "50ae61e841fac4e8f9e40baf2ad36ec868922ea48368c18f9535e47db56dd7fb" 
 
 
 class TestHistory(unittest.TestCase):
-    """历史哈希：从历史归档算出，并入清单的 knownHashes 和 obsolete"""
+    """历史哈希：冻结的历史路径、哈希和归属，并入清单的 knownHashes 和 obsolete"""
 
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -245,39 +235,14 @@ class TestHistory(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def zip_of(self, name, entries):
-        path = self.tmp / name
-        with zipfile.ZipFile(path, "w") as z:
-            for arcname, data in entries.items():
-                z.writestr(arcname, data)
-        return path
-
-    def test_history_collects_every_hash_per_portable_config_path(self):
-        old = self.zip_of("old.zip", {
-            "mpv.exe": b"MZ",
-            "portable_config/mpv.conf": b"abc",
-            "portable_config\\scripts\\old.lua": b"abc",  # 旧 zip 可能用反斜杠
-        })
-        new = self.zip_of("new.zip", {
-            "portable_config/mpv.conf": b"def",
-            "portable_config/scripts/old.lua": b"abc",
-        })
-
-        history = history_from_archives([("fntv-mpv-v1", old), ("fntv-mpv-v2", new)])
-
-        self.assertEqual(history, ManifestHistory(("fntv-mpv-v1", "fntv-mpv-v2"), {
-            "mpv.conf": tuple(sorted([SHA256_ABC, SHA256_DEF])),
-            "scripts/old.lua": (SHA256_ABC,),
-        }))
-
-    def test_the_committed_history_file_is_written_back_byte_for_byte(self):
-        committed = PROJECT_ROOT / "manifest-history.json"
-
-        self.assertEqual(load_history(committed).to_bytes(), committed.read_bytes())
-
     def test_a_malformed_history_file_is_rejected(self):
         path = self.tmp / "history.json"
-        for data in ['{"archives": []}', '{"archives": [], "files": {"mpv.conf": "abc"}}', "not json"]:
+        for data in ['{"archives": []}',
+                     '{"archives": [], "files": {"mpv.conf": "abc"}}',
+                     '{"archives": [], "files": {"mpv.conf": {"hashes": []}}}',
+                     '{"archives": [], "files": {"mpv.conf": {"role": "user", "hashes": []}}}',
+                     '{"archives": [], "files": {"mpv.conf": {"role": "config"}}}',
+                     "not json"]:
             with self.subTest(data=data):
                 path.write_text(data, encoding="utf-8")
                 with self.assertRaisesRegex(ManifestError, "history.json"):
@@ -287,17 +252,20 @@ class TestHistory(unittest.TestCase):
         portable = self.tmp / "portable_config"
         write_portable_config(portable, {"mpv.conf": b"ghi", "scripts/uosc/main.lua": b"abc"})
         history = ManifestHistory(("fntv-mpv-v1",), {
-            "mpv.conf": (SHA256_ABC,),
-            "scripts/uosc/main.lua": (SHA256_ABC, SHA256_DEF),
-            "scripts/removed.lua": (SHA256_DEF,),
-            "script-opts/removed.conf": (SHA256_DEF,),
+            "mpv.conf": HistoryFile("config", (SHA256_ABC,)),
+            "scripts/uosc/main.lua": HistoryFile("managed", (SHA256_ABC, SHA256_DEF)),
+            "scripts/removed.lua": HistoryFile("managed", (SHA256_DEF,)),
+            "script-opts/removed.conf": HistoryFile("config", (SHA256_DEF,)),
+            "became-managed.conf": HistoryFile("config", (SHA256_ABC,)),
         })
         previous = previous_manifest(
             files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
+                    "knownHashes": [SHA256_ABC, SHA256_DEF]},
+                   {"path": "became-managed.conf", "sha256": SHA256_DEF, "role": "managed",
                     "knownHashes": [SHA256_ABC, SHA256_DEF]}],
             obsolete=[{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}])
 
-        manifest = build_manifest(portable, ARCHIVE_VERSION, {},
+        manifest = build_manifest(portable, ARCHIVE_VERSION, {}, CLIENT_LAYOUT,
                                   known=KnownHashes.merge(history, previous))
 
         files = {f.path: f for f in manifest.files}
@@ -305,8 +273,9 @@ class TestHistory(unittest.TestCase):
                          tuple(sorted([SHA256_ABC, SHA256_DEF, SHA256_GHI])))
         self.assertEqual(files["scripts/uosc/main.lua"].known_hashes,
                          tuple(sorted([SHA256_ABC, SHA256_DEF])))
-        # 只有 managed 路径进 obsolete；删掉的 config 文件客户端一律保留
+        # 只有 managed 路径进 obsolete；删掉的 config 文件客户端一律保留；归属以上一版清单为准
         self.assertEqual([(o.path, o.known_hashes) for o in manifest.obsolete], [
+            ("became-managed.conf", tuple(sorted([SHA256_ABC, SHA256_DEF]))),
             ("scripts/gone-long-ago.lua", (SHA256_GHI,)),
             ("scripts/removed.lua", (SHA256_DEF,)),
         ])
@@ -321,10 +290,12 @@ class TestHistory(unittest.TestCase):
             "fntv-mpv-v20261110_224319",
             "fntv-mpv-v20261114_223600",
         ])
-        self.assertIn("scripts/uosc/main.lua", history.files)
-        for path, hashes in history.files.items():
-            self.assertEqual(list(hashes), sorted(set(hashes)), path)
-            for h in hashes:
+        self.assertEqual(history.files["scripts/uosc/main.lua"].role, "managed")
+        self.assertEqual(history.files["mpv.conf"].role, "config")
+        self.assertEqual(history.files["danmaku-history.json"].role, "seed")
+        for path, entry in history.files.items():
+            self.assertEqual(list(entry.hashes), sorted(set(entry.hashes)), path)
+            for h in entry.hashes:
                 self.assertRegex(h, "^[0-9a-f]{64}$")
 
 
@@ -370,6 +341,7 @@ class TestPackagingProducesManifest(unittest.TestCase):
                 "install_to": "portable_config/scripts/uosc_danmaku",
                 "entry": "portable_config/scripts/uosc_danmaku/main.lua",
                 "managed_dir": "portable_config/scripts/uosc_danmaku",
+                "config_roles": {"danmaku-history.json": "seed"},
             },
             "smart_skip": {
                 "name": "smart_skip", "version": "local",
@@ -405,6 +377,7 @@ class TestPackagingProducesManifest(unittest.TestCase):
                 "temp_dir": str(self.tmp / "temp"),
                 "custom_config_dir": str(self.tmp / "custom"),
             },
+            "base_config_roles": {"fntv/defaults.conf": "managed"},
             "dependencies": self.dependencies,
         }), encoding="utf-8")
         return config_path
@@ -449,8 +422,8 @@ class TestPackagingProducesManifest(unittest.TestCase):
         self.dependencies["uosc_danmaku"]["enabled"] = False
         history = self.tmp / "history.json"
         history.write_text(json.dumps({"archives": ["fntv-mpv-v1"], "files": {
-            "scripts/uosc_danmaku/main.lua": [SHA256_ABC],
-            "danmaku-history.json": [SHA256_DEF],
+            "scripts/uosc_danmaku/main.lua": {"role": "managed", "hashes": [SHA256_ABC]},
+            "danmaku-history.json": {"role": "seed", "hashes": [SHA256_DEF]},
         }}), encoding="utf-8")
 
         result, zip_path = self.run_packaging(history_path=str(history))
