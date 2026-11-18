@@ -41,22 +41,7 @@
 
 ```
 fntv-mpv-config/
-├── src/                    # 源代码目录
-│   ├── __init__.py
-│   ├── main.py            # 命令行：把参数翻译成一次构建、列出依赖或清理目录
-│   ├── build.py           # 构建流程：按构建范围取依赖、安装、打包
-│   ├── package_config.py  # 打包配置：读 package_cfg.json，加载时校验全部字段
-│   ├── dependency_layout.py # 依赖布局：安装目标、入口文件、托管目录和基础配置
-│   ├── dependency_source.py # 依赖来源：把一个依赖变成内容目录
-│   ├── download_manager.py # 从 GitHub Release 选出唯一资产并下载
-│   ├── previous_manifest.py # 上一版清单：从 Release 或本地文件取、校验，并进已知哈希
-│   ├── extract.py         # 按扩展名解压
-│   ├── install_manager.py # 安装管理
-│   ├── log_setup.py       # 日志输出设置
-│   ├── package_archive.py # 安装包构建：生成清单、打包、跑契约测试
-│   ├── contract_test.py   # 契约测试：安装包与清单的一致性检查
-│   ├── manifest.py        # 清单格式与解析、归属规则、历史哈希和已知哈希
-│   └── release.py         # 构建结果 JSON 和 Release 说明
+├── src/                   # 构建工具的源代码，入口见“开发指南”
 ├── custom_config/         # 自定义配置目录：base/ 是基础配置，其余按依赖项名分子目录
 │   ├── base/              # 基础配置：mpv.conf、input.conf、fntv/defaults.conf、shaders/
 │   ├── uosc/              # script-opts/uosc.conf
@@ -566,21 +551,9 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 ## 开发指南
 
-### 模块设计
+### 从哪里读起
 
-项目采用模块化设计，各模块职责明确：
-
-1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段；project 目录（`project_dir`）由它给出，其它模块都从这里取
-2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 `download_manager.py`（选出唯一的 Release 资产并下载，HTTP 会话可注入）和 `extract.py`（按扩展名解压）
-3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件及其归属。安装、清单的归属和 `managedDirs`、契约测试的必需路径都从它来
-4. **InstallManager**: 只认 project 目录，不知道输出目录：先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
-5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
-6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试，不通过时抛 `ContractTestFailed`
-7. **contract_test.py**: `contract_test(安装包, 已知哈希, 依赖布局)` 是契约测试的唯一入口，返回全部错误；`build_package_archive` 和 `check_archive.py` 都调用它
-8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有历史哈希（`load_history`）和已知哈希的合并。`build_manifest` 向依赖布局要每个文件的归属和 `managedDirs`
-9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`build()` 和 `check_archive.py` 都经它取已知哈希
-10. **build.py**: `build(打包配置, 构建范围)` 是构建流程的唯一入口：构建范围 `BuildScope` 决定只取依赖、取依赖并安装，还是完整打包；成功返回构建结果，任何失败都抛 `BuildFailed`，带上全部原因（契约测试的每条错误都在里面）。只处理部分依赖时不能完整打包。成功后删临时目录，失败时保留。`clean(打包配置, temp=…, output=…)` 删掉构建留下的东西：临时目录，或者 project 目录、安装包和清单资产
-11. **main.py**: 命令行只负责把参数翻译成 `build()` 的调用，把 `BuildFailed` 逐条打印并以退出码 1 结束；`--clean` 调 `build.clean`，`--list` 是接收打包配置的普通函数
+构建从 `src/main.py` 进入 `src/build.py` 的 `build()`，各 module 的职责看它的公开函数和 [GLOSSARY.md](GLOSSARY.md) 里的术语；不回改路径规则表这类决定的原因见 [docs/adr/](docs/adr/)。
 
 ### 扩展性
 
@@ -706,20 +679,7 @@ python run_tests.py
 python -m unittest tests.test_download_manager -v
 ```
 
-### 测试覆盖范围
-
-- ✅ **package_config**: 三种依赖来源、字段校验、相对路径基准、输出目录优先级
-- ✅ **命令行**: `--list`、`--clean`、`--deps` 的输出和退出码
-- ✅ **DependencySource**: 本地文件夹、本地压缩包、下载后解压、离线模式命中和缺失缓存、清理
-- ✅ **download_manager**: 选资产（精确名优先、唯一前缀、多个或没有时失败）、限流和缺 Release 的报错、按资产大小跳过或重下、下载不完整时失败、代理、`GITHUB_TOKEN` 认证、取最新 Release 的指定资产
-- ✅ **previous_manifest**: 从 Release 或本地文件取上一版清单，缺清单、缺 `files`、不属于那版 Release 时失败
-- ✅ **extract**: 格式识别、tar.gz 解压、拒绝越出目标目录的 tar 成员
-- ✅ **InstallManager**: install_to 和自定义规则、模式匹配语义、规则对不上内容目录或两个依赖装同一文件时报错
-- ✅ **manifest**: 清单解析与生成、历史哈希、完整打包流程（含上次构建的残留不进安装包）
-- ✅ **contract_test**: 契约测试的每项检查和 `check_archive.py`
-- ✅ **package_cfg.json**: 固定的依赖版本和下载地址
-
-各测试文件的说明见 [tests/README.md](tests/README.md)。
+测试的约定见 [tests/README.md](tests/README.md)。
 
 ## 常见问题
 

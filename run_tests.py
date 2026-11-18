@@ -7,6 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 
+
 def discover_and_run_tests():
     """
     自动发现并运行所有测试
@@ -61,12 +62,12 @@ def discover_and_run_tests():
         
         if result.failures:
             print("\n失败的测试:")
-            for test, traceback in result.failures:
+            for test, _traceback in result.failures:
                 print(f"  - {test}")
         
         if result.errors:
             print("\n出错的测试:")
-            for test, traceback in result.errors:
+            for test, _traceback in result.errors:
                 print(f"  - {test}")
         
         return 1

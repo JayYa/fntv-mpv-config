@@ -10,8 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.build import BuildFailed, BuildScope, build
 from src.package_config import load_package_config
-from tests.test_manifest import (SHA256_ABC, SHA256_DEF, SHA256_GHI, THIN_MPV_CONF, manifest_json,
-                                 write_portable_config)
+from tests.test_manifest import SHA256_ABC, SHA256_DEF, SHA256_GHI, THIN_MPV_CONF, manifest_json, write_portable_config
 
 PROJECT_ROOT = Path(__file__).parent.parent
 PROJECT_NAME = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]

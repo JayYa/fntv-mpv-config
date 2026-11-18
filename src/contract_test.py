@@ -3,8 +3,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from .dependency_layout import DependencyLayout
-from .manifest import (DEFAULTS_CONF, MANIFEST_NAME, PORTABLE_CONFIG, PROVIDES, KnownHashes, Manifest,
-                       ManifestError, portable_config_entries, sha256_bytes)
+from .manifest import (
+    DEFAULTS_CONF,
+    MANIFEST_NAME,
+    PORTABLE_CONFIG,
+    PROVIDES,
+    KnownHashes,
+    Manifest,
+    ManifestError,
+    portable_config_entries,
+    sha256_bytes,
+)
 
 # mpv.conf 分层：默认值在托管的 fntv/defaults.conf 的 [fntv-defaults] 段里，
 # 薄 mpv.conf 的前两个有效行是 include 它和 profile=fntv-defaults，用户设置写在后面。

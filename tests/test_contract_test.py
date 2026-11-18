@@ -11,9 +11,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.contract_test import contract_test
 from src.manifest import HistoryFile, KnownHashes, ManifestHistory, build_manifest
-from tests.test_manifest import (ARCHIVE_VERSION, CLIENT_LAYOUT, PROJECT_ROOT, SHA256_ABC, SHA256_DEF,
-                                 SHA256_EMPTY, SHA256_GHI, THIN_MPV_CONF, VALID_PORTABLE_CONFIG,
-                                 previous_manifest, write_portable_config)
+from tests.test_manifest import (
+    ARCHIVE_VERSION,
+    CLIENT_LAYOUT,
+    PROJECT_ROOT,
+    SHA256_ABC,
+    SHA256_DEF,
+    SHA256_EMPTY,
+    SHA256_GHI,
+    THIN_MPV_CONF,
+    VALID_PORTABLE_CONFIG,
+    previous_manifest,
+    write_portable_config,
+)
 
 
 class ArchiveFixture(unittest.TestCase):

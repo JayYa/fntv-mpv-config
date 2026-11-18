@@ -10,11 +10,17 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.package_archive import (ContractTestFailed, KnownHashes, build_package_archive,
-                                 is_package_archive_name)
 from src.manifest import HistoryFile, ManifestHistory
-from tests.test_manifest import (CLIENT_LAYOUT, SHA256_ABC, SHA256_DEF, SHA256_GHI,
-                                 VALID_PORTABLE_CONFIG, previous_manifest, write_portable_config)
+from src.package_archive import ContractTestFailed, KnownHashes, build_package_archive, is_package_archive_name
+from tests.test_manifest import (
+    CLIENT_LAYOUT,
+    SHA256_ABC,
+    SHA256_DEF,
+    SHA256_GHI,
+    VALID_PORTABLE_CONFIG,
+    previous_manifest,
+    write_portable_config,
+)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 

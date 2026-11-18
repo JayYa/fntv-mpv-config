@@ -6,8 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from src.package_config import (OUTPUT_DIR_ENV, ConfigError, GithubRelease, LocalArchive,
-                                LocalDir, load_package_config)
+from src.package_config import OUTPUT_DIR_ENV, ConfigError, GithubRelease, LocalArchive, LocalDir, load_package_config
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -114,7 +113,9 @@ class TestLoadPackageConfig(unittest.TestCase):
     def test_bad_dependency_entries_are_rejected(self):
         (self.tmp / "plugin").mkdir()
         local = {"name": "x", "version": "local", "local_path": "plugin", "install_to": "."}
-        without = lambda d, key: {k: v for k, v in d.items() if k != key}
+        def without(d, key):
+            return {k: v for k, v in d.items() if k != key}
+
         cases = {
             "custom_install_rule": {**UOSC, "custom_install_rule": []},
             "只能写 url 和 local_path 其中之一": {**UOSC, "local_path": "plugin"},

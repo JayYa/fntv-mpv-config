@@ -9,8 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.package_archive import PackageArchive
-from src.release import (FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, render_release_notes,
-                         write_build_result)
+from src.release import FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, render_release_notes, write_build_result
 
 GITHUB_ENV = {
     "GITHUB_SHA": "abc123",

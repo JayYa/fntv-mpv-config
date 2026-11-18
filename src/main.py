@@ -50,7 +50,7 @@ def _package_timestamp_arg(value: str) -> str:
     try:
         return validate_package_timestamp(value)
     except ValueError as e:
-        raise argparse.ArgumentTypeError(str(e))
+        raise argparse.ArgumentTypeError(str(e)) from e
 
 
 def create_cli_parser() -> argparse.ArgumentParser:

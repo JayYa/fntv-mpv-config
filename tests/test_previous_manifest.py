@@ -5,8 +5,7 @@ import unittest
 from pathlib import Path
 
 from src.download_manager import DownloadManager
-from src.previous_manifest import (PreviousManifestError, PreviousManifestFile, PreviousRelease,
-                                   load_known_hashes)
+from src.previous_manifest import PreviousManifestError, PreviousManifestFile, PreviousRelease, load_known_hashes
 from tests.test_download_manager import API, LATEST_TAG, FakeGithub
 from tests.test_manifest import SHA256_ABC, SHA256_DEF, SHA256_GHI, manifest_json
 

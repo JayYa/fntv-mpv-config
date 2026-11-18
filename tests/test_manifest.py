@@ -7,9 +7,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.manifest import (
+    HistoryFile,
+    KnownHashes,
+    Manifest,
+    ManifestError,
+    ManifestHistory,
+    build_manifest,
+    load_history,
+)
 from src.package_config import load_package_config
-from src.manifest import (HistoryFile, KnownHashes, Manifest, ManifestError, ManifestHistory, build_manifest,
-                          load_history)
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
