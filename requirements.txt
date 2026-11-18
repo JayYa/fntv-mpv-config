@@ -1,8 +1,8 @@
 # 核心依赖
-requests>=2.28.0
-py7zr>=0.20.0
-tqdm>=4.64.0
-lupa>=2.0
+requests==2.34.2
+py7zr==1.1.4
+tqdm==4.70.1
+lupa==2.8
 
 # 可选依赖
-rarfile>=4.0; extra == "rar"
+rarfile==4.5; extra == "rar"
