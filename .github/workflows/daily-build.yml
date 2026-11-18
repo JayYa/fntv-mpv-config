@@ -19,12 +19,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Set up Python
-      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
       with:
-        python-version: '3.14'
+        python-version: '3.14.10'
 
     - name: Install 7-Zip
       run: |
@@ -60,7 +60,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: ${{ fromJSON(steps.build.outputs.RESULT).artifactName }}
         path: ${{ fromJSON(steps.build.outputs.RESULT).outputDir }}
@@ -69,7 +69,7 @@ jobs:
     - name: Create Release (if on release branch)
       if: github.ref == 'refs/heads/release'
       id: create_release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
       with:
         tag_name: ${{ fromJSON(steps.build.outputs.RESULT).archiveVersion }}
         name: ${{ fromJSON(steps.build.outputs.RESULT).releaseTitle }}
