@@ -171,29 +171,30 @@ class TestContractTest(ArchiveFixture):
         del files["fntv/defaults.conf"]
         self.assertFailsWith(self.make_zip(portable_files=files), "fntv/defaults.conf")
 
-    def assertMpvConfRejected(self, mpv_conf, defaults=None):
-        files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
-        if defaults is not None:
-            files["fntv/defaults.conf"] = defaults
-        errors = contract_test(self.make_zip(portable_files=files), KnownHashes(), CLIENT_LAYOUT)
-        self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
-
     def test_mpv_conf_layering_is_checked(self):
         cases = {
             "首个有效行不是 include": (
-                b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "首个有效行应为 include"),
             "include 路径没有 ~~/ 前缀，会按进程当前目录解析": (
-                b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "必须带 ~~/ 前缀"),
             "include 写在 profile 段里": (
-                b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "首个有效行应为 include"),
             "include 后没有紧跟 profile=fntv-defaults，默认值会排在用户设置之后": (
-                b'include="~~/fntv/defaults.conf"\nvo=gpu\n', None),
+                b'include="~~/fntv/defaults.conf"\nvo=gpu\n', None,
+                "include 行后应紧跟 profile=fntv-defaults"),
             "defaults.conf 的选项没放进 [fntv-defaults] 段": (
-                THIN_MPV_CONF, b"vo=gpu-next\n[fntv-defaults]\n"),
+                THIN_MPV_CONF, b"vo=gpu-next\n[fntv-defaults]\n",
+                "必须全部写在 [fntv-defaults] 段里"),
         }
-        for problem, (mpv_conf, defaults) in cases.items():
+        for problem, (mpv_conf, defaults, fragment) in cases.items():
             with self.subTest(problem):
-                self.assertMpvConfRejected(mpv_conf, defaults)
+                files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
+                if defaults is not None:
+                    files["fntv/defaults.conf"] = defaults
+                self.assertFailsWith(self.make_zip(portable_files=files), fragment)
 
 
 class TestKnownHashesKept(ArchiveFixture):
