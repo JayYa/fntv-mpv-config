@@ -18,8 +18,6 @@ PROJECT_NAME = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding
 
 
 class BuildTestCase(unittest.TestCase):
-    """用本地假插件搭一份打包配置，跑真实的构建流程"""
-
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         pkgs = self.tmp / "pkgs"

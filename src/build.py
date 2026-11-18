@@ -1,4 +1,3 @@
-"""构建流程：按打包配置取依赖、装进 project 目录、打成安装包"""
 import logging
 from dataclasses import replace
 from enum import Enum

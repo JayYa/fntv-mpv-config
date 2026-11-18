@@ -1,6 +1,3 @@
-"""
-命令行入口：把参数翻译成一次构建、列出依赖或清理目录
-"""
 import argparse
 import logging
 import sys
