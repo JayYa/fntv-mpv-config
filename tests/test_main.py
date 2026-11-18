@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from src.main import create_cli_parser, main, parse_args
+from tests.test_build import BuildTestCase
 
 
 class TestParseArgs(unittest.TestCase):
@@ -37,12 +38,6 @@ class TestParseArgs(unittest.TestCase):
         self.assertEqual(self.parse(["--previous-manifest", "m.json"]).previous_manifest, "m.json")
         self.assert_exits(["--previous-release", "JayYa/fntv-mpv-config",
                            "--previous-manifest", "m.json"])
-
-    def test_deps_subset_cannot_be_packaged(self):
-        self.assert_exits(["--deps", "uosc"])
-        for skip in ["--skip-package", "--skip-install"]:
-            with self.subTest(skip=skip):
-                self.assertEqual(self.parse(["--deps", "uosc", skip]).deps, ["uosc"])
 
 
 class TestCommandLine(unittest.TestCase):
@@ -139,6 +134,70 @@ class TestCommandLine(unittest.TestCase):
                 with self.subTest(flag=flag):
                     code, _ = self.run_main(flag, "uosc")
                     self.assertEqual(code, 2)
+
+
+class TestBuildCommand(BuildTestCase):
+
+    def run_main(self, *args):
+        out = io.StringIO()
+        argv = ["--config", str(self.write_package_config()), "--log-level", "ERROR",
+                "--package-timestamp", "20261114_235959",
+                "--manifest-history", str(self.write_empty_history()), *args]
+        with mock.patch("sys.stdout", out):
+            try:
+                main(argv)
+                code = 0
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue()
+
+    @property
+    def project_dir(self) -> Path:
+        return self.tmp / "out" / json.loads(self.write_package_config().read_text(encoding="utf-8"))["name"]
+
+    def test_skip_install_only_fetches(self):
+        code, _ = self.run_main("--skip-install")
+
+        self.assertEqual(code, 0)
+        self.assertFalse(self.project_dir.exists())
+
+    def test_skip_package_installs_without_packaging(self):
+        code, _ = self.run_main("--skip-package")
+
+        self.assertEqual(code, 0)
+        self.assertTrue((self.project_dir / "mpv.exe").is_file())
+        self.assertFalse(self.zip_path.exists())
+
+    def test_a_failed_build_prints_every_reason_and_exits_1(self):
+        self.dependencies["uosc"]["entry"] = "portable_config/scripts/uosc/missing.lua"
+        self.dependencies["thumbfast"]["entry"] = "portable_config/scripts/missing.lua"
+
+        code, out = self.run_main()
+
+        self.assertEqual(code, 1)
+        self.assertIn("portable_config/scripts/uosc/missing.lua", out)
+        self.assertIn("portable_config/scripts/missing.lua", out)
+
+    def test_a_subset_of_dependencies_cannot_be_packaged(self):
+        code, out = self.run_main("--deps", "uosc")
+
+        self.assertEqual(code, 1)
+        self.assertIn("完整打包", out)
+
+    def test_writes_the_build_result(self):
+        result_file = self.tmp / "ci" / "build-result.json"
+        argv = ["--config", str(self.write_package_config()), "--log-level", "ERROR",
+                "--package-timestamp", "20261114_235959", "--result-file", str(result_file),
+                "--manifest-history", str(self.write_empty_history())]
+        with mock.patch("sys.stdout", io.StringIO()):
+            main(argv)
+
+        data = json.loads(result_file.read_text(encoding="utf-8"))
+        self.assertEqual(data["archiveVersion"], "fntv-mpv-v20261114_235959")
+        self.assertTrue(Path(data["packagePath"]).is_file())
+        notes = Path(data["releaseNotesPath"]).read_text(encoding="utf-8")
+        self.assertIn("- 🔧 smart_skip (local)", notes)
+        self.assertIn("└── portable_config/ # 便携式配置目录", notes)
 
 
 if __name__ == "__main__":

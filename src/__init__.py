@@ -11,6 +11,7 @@ MPV播放器和插件管理工具
 __version__ = "1.0.0"
 __author__ = "MPV Config Manager"
 
-from .main import MPVConfigManager, main
+from .build import BuildFailed, BuildScope, build
+from .main import main
 
-__all__ = ['MPVConfigManager', 'main']
+__all__ = ['BuildFailed', 'BuildScope', 'build', 'main']

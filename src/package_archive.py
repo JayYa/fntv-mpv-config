@@ -85,7 +85,6 @@ def build_package_archive(project_dir: Path, components: Dict[str, str], known: 
 
     Raises:
         ValueError: 时间戳格式不符
-        ManifestError: portable_config 里有文件没有归属
         ContractTestFailed: 安装包没通过契约测试
     """
     if timestamp is None:

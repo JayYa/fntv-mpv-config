@@ -12,11 +12,12 @@ tests/
 ├── test_previous_manifest.py # 上一版清单：经 load_known_hashes 测 Release 和本地文件两种来源
 ├── test_extract.py      # 解压：格式识别、tar 解压和越界成员
 ├── test_package_config.py # 打包配置：经 load_package_config 测三种依赖来源和字段校验
-├── test_main.py         # 命令行：参数校验，以及经 main(argv) 测 --list、--clean、--deps 的输出和退出码
+├── test_main.py         # 命令行：参数校验，以及经 main(argv) 测参数到构建范围的映射、输出和退出码
+├── test_build.py        # 构建流程：经 build() 端到端打包，以及每种失败报出的原因
 ├── test_dependency_layout.py # 依赖布局：加载校验、入口文件、托管目录、基础配置
 ├── test_dependency_source.py # 依赖来源：每种依赖经 fetch 变成内容目录
 ├── test_install_core.py # 安装管理器核心功能测试
-├── test_manifest.py     # 归档清单 fntv-manifest.json 的解析、生成、历史哈希和端到端打包
+├── test_manifest.py     # 归档清单 fntv-manifest.json 的解析、生成和历史哈希
 ├── test_contract_test.py # 契约测试：经 contract_test 和 check_archive.py 测每项检查
 ├── test_package_archive.py # 安装包构建：打包、命名、契约测试失败
 ├── test_package_defaults.py # 固定的依赖版本和首次安装的默认值
@@ -24,9 +25,9 @@ tests/
 ├── test_release.py      # 构建结果 JSON、Release 说明（含已停用的依赖）
 ```
 
-测试都不访问网络：下载器、上一版清单和端到端 `run()` 的测试注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
+测试都不访问网络：下载器、上一版清单和端到端 `build()` 的测试注入假的 HTTP 会话，依赖来源的测试用 mock 替换整个下载器。
 
-`test_manifest.py` 覆盖清单的结构校验（`Manifest.parse`）、生成（`build_manifest`）、历史哈希，以及跑完整 `run()` 的端到端测试。`test_contract_test.py` 经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑契约测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
+`test_manifest.py` 覆盖清单的结构校验（`Manifest.parse`）、生成（`build_manifest`）和历史哈希。`test_build.py` 用本地假依赖跑完整的 `build()`。`test_contract_test.py` 经 `contract_test` 和根目录的 `check_archive.py` 对 zip 跑契约测试。`test_package_archive.py` 直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 
 ### 测试模块详情
 
@@ -43,11 +44,19 @@ tests/
 - **TestParseArgs**: 经 `parse_args` 测
   - `--package-timestamp` 格式不对时退出
   - `--result-file` 不能和 `--skip-package` / `--skip-install` 一起用
-  - `--deps` 只装一部分依赖，必须同时带 `--skip-package` 或 `--skip-install`
   - `--previous-release` 和 `--previous-manifest` 只能给一个
 - **TestCommandLine**: 经 `main(argv)` 测
   - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
   - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
+- **TestBuildCommand**: 经 `main(argv)` 跑本地假依赖的构建
+  - `--skip-install` 只取依赖，`--skip-package` 安装但不打包
+  - 构建失败时逐条打印原因并以退出码 1 结束；`--deps` 不带跳过开关时同样以 1 结束
+  - `--result-file` 写出构建结果和 Release 说明
+
+#### 0c. test_build.py - 构建流程测试
+- **TestPackaging**: 端到端，用本地假 mpv 和假插件跑完整的 `build()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，经假会话取到的上一版 Release 清单的已知哈希进本次清单，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`
+- **TestBuildFails**: 每种失败都抛 `BuildFailed` 并带上原因：只处理部分依赖却要完整打包、依赖名不存在或已停用（一次全部报出）、某个依赖取不到（指出是哪个依赖，保留临时目录和原始异常）、契约测试的每条错误
+- **TestTempDir**: 构建成功后删掉临时目录，`keep_temp` 时保留
   - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 
 #### 1. test_download_manager.py - 下载器测试
@@ -121,7 +130,6 @@ tests/
 - **TestParseManifest**: `Manifest.parse` 一次报出全部结构错误：不是 JSON、缺字段或类型不对、`role` 不合法、`knownHashes` 不含本次 `sha256`、路径重复或同时在 `files` 和 `obsolete` 里
 - **TestShippedMpvConf**: 仓库里的 `defaults.conf` 和薄 `mpv.conf` 符合分层约定
 - **TestHistory**: 历史哈希的收集、结构校验与合并、`obsolete`
-- **TestPackagingProducesManifest**: 端到端，用本地假 mpv 和假插件跑完整的 `run()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，经假会话取到的上一版 Release 清单的已知哈希进本次清单，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`，命令行 `--result-file` 写出构建结果和 Release 说明
 
 #### 4a. test_contract_test.py - 契约测试
 - **TestContractTest**: 经 `contract_test`（传入从仓库 `package_cfg.json` 读出的依赖布局 `CLIENT_LAYOUT`）做的每项一致性检查，含根目录缺 `mpv.exe`、mpv.conf 分层、清单资产与 zip 内清单的比对；清单结构不对时报出结构错误
@@ -182,6 +190,9 @@ python tests/test_install_core.py
 
 # 归档清单测试
 python tests/test_manifest.py
+
+# 构建流程测试（导入 src 包，从仓库根目录用 -m 运行）
+python -m unittest tests.test_build
 
 # 发版输入测试
 python tests/test_package_defaults.py
