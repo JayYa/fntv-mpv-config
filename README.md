@@ -43,7 +43,8 @@
 fntv-mpv-config/
 ├── src/                    # 源代码目录
 │   ├── __init__.py
-│   ├── main.py            # 主程序
+│   ├── main.py            # 命令行：把参数翻译成一次构建、列出依赖或清理目录
+│   ├── build.py           # 构建流程：按构建范围取依赖、安装、打包
 │   ├── package_config.py  # 打包配置：读 package_cfg.json，加载时校验全部字段
 │   ├── dependency_layout.py # 依赖布局：安装目标、入口文件、托管目录和基础配置
 │   ├── dependency_source.py # 依赖来源：把一个依赖变成内容目录
@@ -576,7 +577,9 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试，不通过时抛 `ContractTestFailed`
 7. **contract_test.py**: `contract_test(安装包, 已知哈希, 依赖布局)` 是契约测试的唯一入口，返回全部错误；`build_package_archive` 和 `check_archive.py` 都调用它
 8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有历史哈希（`load_history`）和已知哈希的合并。`build_manifest` 向依赖布局要每个文件的归属和 `managedDirs`
-9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`run()` 和 `check_archive.py` 都经它取已知哈希
+9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`build()` 和 `check_archive.py` 都经它取已知哈希
+10. **build.py**: `build(打包配置, 构建范围)` 是构建流程的唯一入口：构建范围 `BuildScope` 决定只取依赖、取依赖并安装，还是完整打包；成功返回构建结果，任何失败都抛 `BuildFailed`，带上全部原因（契约测试的每条错误都在里面）。只处理部分依赖时不能完整打包。成功后删临时目录，失败时保留
+11. **main.py**: 命令行只负责把参数翻译成 `build()` 的调用，把 `BuildFailed` 逐条打印并以退出码 1 结束；`--list`、`--clean` 是接收打包配置的普通函数
 
 ### 扩展性
 

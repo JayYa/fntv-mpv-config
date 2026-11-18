@@ -1,209 +1,47 @@
-"""
-主程序模块
-协调各个模块的工作，提供命令行界面
-"""
 import argparse
 import logging
 import sys
-from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Tuple
+from typing import List, Optional
 
-import requests
-
+from .build import BuildFailed, BuildScope, build
 from .dependency_source import DependencySource
-from .download_manager import DownloadManager
 from .install_manager import InstallManager
 from .log_setup import setup_logging
-from .package_archive import (ContractTestFailed, build_package_archive, remove_package_archives,
-                              validate_package_timestamp)
-from .package_config import (ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig,
-                             load_package_config)
-from .previous_manifest import (PreviousManifest, PreviousManifestFile, PreviousRelease,
-                                load_known_hashes)
-from .release import BuildResult, Dependency, write_build_result
+from .package_archive import remove_package_archives, validate_package_timestamp
+from .package_config import ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig, load_package_config
+from .previous_manifest import PreviousManifest, PreviousManifestFile, PreviousRelease
+from .release import write_build_result
+
+logger = logging.getLogger(__name__)
 
 
-class MPVConfigManager:
-    """MPV配置管理器主类"""
-
-    def __init__(self, config_path: str = "package_cfg.json", log_level: str = "INFO",
-                 output_dir: Optional[str] = None, session: Optional[requests.Session] = None):
-        """
-        Args:
-            config_path: 配置文件路径
-            log_level: 日志级别
-            output_dir: 输出目录覆盖值，None 时依次取环境变量 FNTV_MPV_OUTPUT_DIR 和配置文件
-            session: 访问 GitHub 用的 HTTP 会话，None 时新建
-        """
-        setup_logging(log_level)
-        self.logger = logging.getLogger(__name__)
-        self.config_path = config_path
-        self.output_dir_override = output_dir
-        self.session = session
-
-    def run(self, dependencies: Optional[List[str]] = None,
-            skip_download: bool = False,
-            skip_install: bool = False,
-            create_package: bool = True,
-            cleanup: bool = True,
-            package_timestamp: Optional[str] = None,
-            history_path: Optional[str] = None,
-            previous: Optional[PreviousManifest] = None) -> Optional[BuildResult]:
-        """
-        运行主流程
-
-        安装前先清空 project 目录，安装包里只有本次安装的文件。
-
-        Args:
-            dependencies: 要处理的依赖项名称列表，None 表示处理全部依赖
-            skip_download: 离线模式，GitHub Release 依赖只用 temp 里上次下载的压缩包，没有就失败
-            skip_install: 跳过安装步骤
-            create_package: 是否创建安装包
-            cleanup: 是否清理临时文件
-            package_timestamp: 安装包资产名的时间戳（yyyyMMdd_HHmmss），None 时用当前北京时间
-            history_path: 历史哈希文件，None 时用仓库根目录的 manifest-history.json
-            previous: 上一版清单从哪来，None 时只用历史哈希
-
-        Returns:
-            成功时返回构建结果，失败时返回 None
-        """
-        try:
-            self.logger.info("开始MPV配置管理流程")
-
-            config = self._load()
-            self.logger.info(f"配置加载完成: {config.project_name}")
-
-            downloader = DownloadManager(config.github_proxy, config.enable_proxy, session=self.session)
-            source = self._dependency_source(config, offline=skip_download, downloader=downloader)
-            installer = self._installer(config)
-
-            target_dependencies = _target_dependencies(config, dependencies)
-            self.logger.info(f"将处理以下依赖项: {list(target_dependencies)}")
-
-            packaging = create_package and not skip_install
-            known = None
-            if packaging:
-                known = load_known_hashes(history_path, previous, downloader)
-
-            if not skip_install:
-                installer.reset_project_dir()
-                installer.install_base_config(config.archive_layout)
-            for dep_name, entry in target_dependencies.items():
-                try:
-                    content_dir = source.fetch(dep_name, entry.source)
-                    if not skip_install:
-                        installer.install_dependency(config.archive_layout.placements[dep_name], content_dir)
-                except Exception as e:
-                    self.logger.error(f"处理依赖项 {dep_name} 失败: {e}")
-                    return None
-
-            result = BuildResult(
-                output_dir=installer.base_output_dir.resolve(),
-                project_dir=installer.output_dir.resolve(),
-                processed_dependencies=_release_dependencies(target_dependencies),
-                disabled_dependencies=_release_dependencies(config.disabled_dependencies),
-            )
-
-            if packaging:
-                components = {name: entry.version for name, entry in config.enabled_dependencies.items()}
-                try:
-                    package = build_package_archive(installer.output_dir, components, known,
-                                                    config.archive_layout, timestamp=package_timestamp)
-                except ContractTestFailed as e:
-                    for error in e.errors:
-                        self.logger.error(f"契约测试失败: {error}")
-                    return None
-                self.logger.info(f"安装包已创建并通过契约测试: {package.path}（{package.archive_version}）")
-                result = replace(result, package=package)
-
-            if cleanup:
-                try:
-                    source.clean()
-                except OSError as e:
-                    self.logger.warning(f"清理临时目录失败: {e}")
-
-            self.logger.info("MPV配置管理流程完成")
-            return result
-
-        except Exception as e:
-            self.logger.error(f"运行失败: {e}")
-            return None
-
-    def list_dependencies(self):
-        """
-        列出所有依赖项和它们的来源
-
-        Raises:
-            ConfigError: 配置文件不合法
-        """
-        config = self._load()
-        self.logger.info("依赖项:")
-        for name, entry in config.dependencies.items():
-            disabled_note = "" if entry.enabled else "，已停用"
-            self.logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}{disabled_note}）")
-
-    def clean_directories(self, clean_temp: bool = True, clean_output: bool = False):
-        """
-        清理下载和构建目录
-
-        Args:
-            clean_temp: 删掉整个临时目录
-            clean_output: 删掉 project 目录、输出目录里的安装包和清单资产；输出目录里的其它东西不动
-
-        Raises:
-            ConfigError: 配置文件不合法
-            OSError: 删除失败
-        """
-        config = self._load()
-        if clean_temp:
-            self._dependency_source(config).clean()
-
-        if clean_output:
-            if not config.output_dir.exists():
-                self.logger.info(f"输出目录不存在: {config.output_dir}")
-                return
-            self._installer(config).remove_project_dir()
-            for path in remove_package_archives(config.output_dir):
-                self.logger.info(f"已删除文件: {path.name}")
-
-    def _load(self) -> PackageConfig:
-        return load_package_config(self.config_path, self.output_dir_override)
-
-    @staticmethod
-    def _dependency_source(config: PackageConfig, offline: bool = False,
-                           downloader: Optional[DownloadManager] = None) -> DependencySource:
-        return DependencySource(config.temp_dir, proxy_url=config.github_proxy,
-                                enable_proxy=config.enable_proxy, offline=offline,
-                                downloader=downloader)
-
-    @staticmethod
-    def _installer(config: PackageConfig) -> InstallManager:
-        return InstallManager(config.output_dir, config.project_name)
+def list_dependencies(config: PackageConfig):
+    logger.info("依赖项:")
+    for name, entry in config.dependencies.items():
+        disabled_note = "" if entry.enabled else "，已停用"
+        logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}{disabled_note}）")
 
 
-def _target_dependencies(config: PackageConfig,
-                         names: Optional[List[str]]) -> Dict[str, DependencySpec]:
-    enabled = config.enabled_dependencies
-    if names is None:
-        return dict(enabled)
-    unknown = [name for name in names if name not in config.dependencies]
-    disabled = [name for name in names if name in config.disabled_dependencies]
-    problems = []
-    if unknown:
-        problems.append(f"没有这些依赖项: {', '.join(unknown)}")
-    if disabled:
-        problems.append(f"这些依赖项已停用: {', '.join(disabled)}，要处理请先在 package_cfg.json 里把 enabled 改成 true")
-    if problems:
-        hint = f"可选: {', '.join(enabled)}"
-        if config.disabled_dependencies:
-            hint += f"；已停用: {', '.join(config.disabled_dependencies)}"
-        raise ConfigError("；".join(problems + [hint]))
-    return {name: enabled[name] for name in names}
+def clean_directories(config: PackageConfig, clean_temp: bool, clean_output: bool):
+    """
+    Args:
+        clean_temp: 删掉整个临时目录
+        clean_output: 删掉 project 目录、输出目录里的安装包和清单资产；输出目录里的其它东西不动
 
+    Raises:
+        OSError: 删除失败
+    """
+    if clean_temp:
+        DependencySource(config.temp_dir).clean()
 
-def _release_dependencies(dependencies: Mapping[str, DependencySpec]) -> Tuple[Dependency, ...]:
-    return tuple(Dependency(entry.display_name, entry.version) for entry in dependencies.values())
+    if clean_output:
+        if not config.output_dir.exists():
+            logger.info(f"输出目录不存在: {config.output_dir}")
+            return
+        InstallManager(config.output_dir, config.project_name).remove_project_dir()
+        for path in remove_package_archives(config.output_dir):
+            logger.info(f"已删除文件: {path.name}")
 
 
 def _describe(entry: DependencySpec) -> str:
@@ -212,6 +50,14 @@ def _describe(entry: DependencySpec) -> str:
         return f"GitHub Release {source.repo_path}"
     kind = "本地文件夹" if isinstance(source, LocalDir) else "本地压缩包"
     return f"{kind} {source.path}"
+
+
+def _scope(args: argparse.Namespace) -> BuildScope:
+    if args.skip_install:
+        return BuildScope.FETCH
+    if args.skip_package:
+        return BuildScope.INSTALL
+    return BuildScope.PACKAGE
 
 
 def _previous_manifest(args: argparse.Namespace) -> Optional[PreviousManifest]:
@@ -319,7 +165,7 @@ def create_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--skip-cleanup',
         action='store_true',
-        help='不清理临时文件'
+        help='不清理临时文件；构建失败时临时目录总是保留'
     )
 
     parser.add_argument(
@@ -349,8 +195,6 @@ def parse_args(parser: argparse.ArgumentParser, argv: Optional[List[str]] = None
     args = parser.parse_args(argv)
     if args.result_file and (args.skip_package or args.skip_install):
         parser.error("--result-file 需要打包，不能与 --skip-package / --skip-install 同用")
-    if args.deps is not None and not (args.skip_package or args.skip_install):
-        parser.error("--deps 只装一部分依赖，打出的安装包不完整；请同时带 --skip-package 或 --skip-install")
     return args
 
 
@@ -358,42 +202,50 @@ def main(argv: Optional[List[str]] = None):
     """
     命令行入口；argv 不含程序名，None 时读 sys.argv
 
-    任何命令失败都以退出码 1 结束，参数错误以 2 结束。
+    配置不合法、构建失败、清理失败都以退出码 1 结束，参数错误以 2 结束。
     """
     parser = create_cli_parser()
     args = parse_args(parser, argv)
+    setup_logging(args.log_level)
 
     try:
-        manager = MPVConfigManager(args.config, args.log_level, args.output_dir)
+        config = load_package_config(args.config, args.output_dir)
 
         if args.list:
-            manager.list_dependencies()
+            list_dependencies(config)
         elif args.clean:
-            manager.clean_directories(clean_temp=args.clean in ('temp', 'all'),
-                                      clean_output=args.clean in ('output', 'all'))
-        else:
-            result = manager.run(
-                dependencies=args.deps,
-                skip_download=args.skip_download,
-                skip_install=args.skip_install,
-                create_package=not args.skip_package,
-                cleanup=not args.skip_cleanup,
-                package_timestamp=args.package_timestamp,
-                history_path=args.manifest_history,
-                previous=_previous_manifest(args)
-            )
-
-            if result is None:
+            try:
+                clean_directories(config, clean_temp=args.clean in ('temp', 'all'),
+                                  clean_output=args.clean in ('output', 'all'))
+            except OSError as e:
+                print(f"清理失败: {e}")
                 sys.exit(1)
+        else:
+            logger.info(f"开始构建 {config.project_name}")
+            result = build(
+                config, _scope(args),
+                dependencies=args.deps,
+                offline=args.skip_download,
+                keep_temp=args.skip_cleanup,
+                package_timestamp=args.package_timestamp,
+                history_path=Path(args.manifest_history) if args.manifest_history else None,
+                previous=_previous_manifest(args),
+            )
+            logger.info("构建完成")
             if args.result_file:
                 path = write_build_result(result, Path(args.result_file))
                 print(f"构建结果已写入: {path}")
 
+    except BuildFailed as e:
+        print(f"构建失败（{len(e.errors)} 项）:")
+        for error in e.errors:
+            print(f"  - {error}")
+        sys.exit(1)
+    except ConfigError as e:
+        print(f"配置错误: {e}")
+        sys.exit(1)
     except KeyboardInterrupt:
         print("\n操作被用户中断")
-        sys.exit(1)
-    except Exception as e:
-        print(f"程序运行失败: {e}")
         sys.exit(1)
 
 
