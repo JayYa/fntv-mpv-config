@@ -18,6 +18,14 @@ Apply every rule to the diff. CI already runs `ruff check .` and the tests, so t
 
 - Test through the module's interface (`load_package_config`, `load_layout`, `fetch`, `build()`, `main(argv)`), not through the staging layout or private attributes behind it.
 - One rule per test, named for the rule.
+- Assert a rule, not a copy of checked-in data. A test that restates a data file's values is a **change detector**: it catches no bug and fails only on legitimate edits.
+
+  ```python
+  # Bad: change detector
+  def test_uosc_uses_latest_stable_release(self):
+      config = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))
+      self.assertEqual(config["dependencies"]["uosc"]["version"], "5.13.0")
+  ```
 
 ## Commits
 
