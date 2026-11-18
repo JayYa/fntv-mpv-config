@@ -128,14 +128,20 @@ class TestContractTest(ArchiveFixture):
 
         self.assertFailsWith(self.make_zip(edit_manifest=wrong_role), "scripts/uosc/main.lua")
 
-    def test_every_managed_dir_holds_a_client_entry(self):
+    def test_managed_dirs_must_belong_to_a_dependency(self):
         def add_dir(m):
             m["managedDirs"].append("fonts")
 
         zip_path = self.make_zip(edit_manifest=add_dir,
                                  portable_files=dict(VALID_PORTABLE_CONFIG, **{"fonts/a.otf": b""}))
 
-        self.assertFailsWith(zip_path, "fonts")
+        self.assertFailsWith(zip_path, "托管目录 fonts")
+
+    def test_a_managed_dir_without_its_entry_fails(self):
+        files = dict(VALID_PORTABLE_CONFIG, **{"scripts/smart_skip/skip_window.lua": b"--"})
+        del files["scripts/smart_skip/main.lua"]
+
+        self.assertFailsWith(self.make_zip(portable_files=files), "托管目录 scripts/smart_skip")
 
     def test_client_entry_scripts_must_exist(self):
         files = dict(VALID_PORTABLE_CONFIG)
