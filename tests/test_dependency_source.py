@@ -69,6 +69,8 @@ class TestDependencySource(unittest.TestCase):
 
         self.assertTrue((content / "scripts" / "uosc" / "main.lua").is_file())
         self.assertFalse(old.exists())
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
+        self.assertTrue((offline.fetch("uosc", UOSC) / "scripts" / "uosc" / "main.lua").is_file())
 
     def test_offline_uses_the_cached_download(self):
         self.downloader.download.side_effect = download_uosc("-- cached")
@@ -114,7 +116,7 @@ class TestDependencySource(unittest.TestCase):
         with self.assertRaises(FetchError):
             offline.fetch("uosc", UOSC)
 
-    def test_clean_removes_the_temp_dir(self):
+    def test_remove_temp_dir_removes_the_whole_temp_dir(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip", {"a": ""})
 
         remove_temp_dir(self.temp_dir)

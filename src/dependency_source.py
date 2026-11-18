@@ -80,16 +80,17 @@ class DependencySource:
         rerun = "先不带 --skip-download、带 --skip-cleanup 构建一次"
         try:
             record = json.loads(record_path.read_text(encoding="utf-8"))
-            cached_source = record["source"]
-            archive = archive_dir / record["archive"]
+            cached_release = GithubRelease(**record["source"])
+            archive = archive_dir / Path(record["archive"]).name
+            size = record["size"]
         except (OSError, ValueError, KeyError, TypeError):
-            raise FetchError(f"离线模式下 {archive_dir} 里没有可用的缓存记录；{rerun}") from None
-        if cached_source != asdict(release):
+            raise FetchError(f"离线模式下 {archive_dir} 里没有可用的来源记录；{rerun}") from None
+        if cached_release != release:
             raise FetchError(
-                f"离线模式下 {name} 缓存的是 {_describe(cached_source)}，"
-                f"打包配置要的是 {_describe(asdict(release))}；{rerun}")
-        if not archive.is_file() or archive.stat().st_size != record.get("size"):
-            raise FetchError(f"离线模式下 {archive} 不在或已被改动，和缓存记录对不上；{rerun}")
+                f"离线模式下 {name} 缓存的是 {_describe(cached_release)}，"
+                f"打包配置要的是 {_describe(release)}；{rerun}")
+        if not archive.is_file() or archive.stat().st_size != size:
+            raise FetchError(f"离线模式下 {archive} 不在或大小变了，和来源记录对不上；{rerun}")
         self.logger.info(f"{name} 使用缓存的压缩包: {archive}")
         return archive
 
@@ -108,9 +109,8 @@ def remove_temp_dir(temp_dir: Path):
         logging.getLogger(__name__).info(f"已删除临时目录: {temp_dir}")
 
 
-def _describe(source: dict) -> str:
-    return (f"{source.get('owner')}/{source.get('repo')} {source.get('version')}"
-            f"（{source.get('filename_pattern')}.{source.get('format')}）")
+def _describe(release: GithubRelease) -> str:
+    return f"{release.repo_path} {release.version}（{release.filename_pattern}{release.archive_suffix}）"
 
 
 def _without_single_root(unpacked_dir: Path) -> Path:
