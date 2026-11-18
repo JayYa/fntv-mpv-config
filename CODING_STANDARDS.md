@@ -41,6 +41,17 @@ Apply every rule to the diff. CI already runs `ruff check .` and the tests, so t
           self.assertTrue(contract_test(self.make_zip(portable_files=...), ...))
   ```
 
+- A test's case reaches the rule its name states. A case that trips a neighbouring rule instead (often the other half of one condition) is **misnamed**: delete the rule the name states and the test stays green. Build the case so the named rule is the only one it breaks; a check with two halves gets one test per half.
+
+  ```python
+  # Bad: misnamed. "fonts" is no dependency's managed_dir, so the case trips
+  # that half of the check and never reaches "the entry is in the zip".
+  def test_every_managed_dir_holds_a_client_entry(self):
+      def add_dir(m):
+          m["managedDirs"].append("fonts")
+      self.assertFailsWith(self.make_zip(edit_manifest=add_dir, ...), "fonts")
+  ```
+
 ## Commits
 
 - Refactors and fixes land in separate commits; structural cleanup done along the way goes in the refactor.
