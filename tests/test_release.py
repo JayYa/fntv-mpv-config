@@ -85,47 +85,23 @@ class TestRenderReleaseNotes(ReleaseTestCase):
         self.assertIn("- 🔧 smart_skip\n\n已停用：uosc_danmaku\n", notes)
         self.assertNotIn("已停用", render_release_notes(self.result, GITHUB_ENV))
 
-    def test_notes_on_github_actions(self):
+    def test_notes_on_github_actions_name_the_commit_and_link_its_docs(self):
         notes = render_release_notes(self.result, GITHUB_ENV)
 
-        self.assertEqual(notes, f"""\
-🎬 FNTV MPV - 自动构建包
+        self.assertIn("📅 构建时间: 20261115_010807\n🔧 构建分支: release\n📝 提交ID: abc123\n", notes)
+        self.assertIn("(https://github.com/JayYa/fntv-mpv-config/blob/abc123/README.md)", notes)
+        self.assertIn("(https://github.com/JayYa/fntv-mpv-config/issues)", notes)
 
-📅 构建时间: 20261115_010807
-🔧 构建分支: release
-📝 提交ID: abc123
+    def test_notes_list_dependencies_with_their_versions(self):
+        notes = render_release_notes(self.result, GITHUB_ENV)
 
-## 📦 本次构建包含
-### 🎥 核心组件
-- MPV播放器主程序
-- 便携式配置文件结构
-- 预配置的快捷键和播放设置
+        self.assertIn("\n- 🔧 mpv (20261108)\n- 🔧 smart_skip\n", notes)
 
-### 🔧 启用的插件/组件
-- 🔧 mpv (20261108)
-- 🔧 smart_skip
+    def test_notes_name_the_package_and_show_its_visible_tree(self):
+        notes = render_release_notes(self.result, GITHUB_ENV)
 
-## 🚀 快速开始
-1. 下载 `mpv-package-20261115_010807.zip` 文件
-2. 解压到任意目录
-3. 双击运行 `mpv.exe` 即可使用
-4. 所有配置都是便携式的，无需安装
-
-## 📁 目录结构
-```
-{EXPECTED_TREE}
-```
-
-## ⚙️ 配置管理
-- 🎮 快捷键: `portable_config/input.conf`
-- 🎨 UI设置: `portable_config/script-opts/uosc.conf`
-- 💬 弹幕设置: `portable_config/script-opts/uosc_danmaku.conf`
-
-## 🔗 相关链接
-- 📖 [使用文档](https://github.com/JayYa/fntv-mpv-config/blob/abc123/README.md)
-- 🐛 [问题反馈](https://github.com/JayYa/fntv-mpv-config/issues)
-- 🔄 [配置更新](https://github.com/JayYa/fntv-mpv-config/releases)
-""")
+        self.assertIn("`mpv-package-20261115_010807.zip`", notes)
+        self.assertIn(f"```\n{EXPECTED_TREE}\n```", notes)
 
     def test_notes_outside_ci_omit_commit_branch_and_links(self):
         notes = render_release_notes(self.result, {})

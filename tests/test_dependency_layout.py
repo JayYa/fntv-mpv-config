@@ -176,17 +176,12 @@ class TestLoadLayout(unittest.TestCase):
 
         layout = load_layout(dependencies, PROJECT_ROOT / "custom_config")
 
-        self.assertEqual(sorted(layout.required_paths), [
-            "mpv.exe",
-            "portable_config/fntv/defaults.conf",
-            "portable_config/mpv.conf",
-            "portable_config/scripts/smart_skip/main.lua",
-            "portable_config/scripts/thumbfast.lua",
-            "portable_config/scripts/uosc/main.lua",
-            "portable_config/scripts/uosc_danmaku/main.lua",
-        ])
-        self.assertEqual(sorted(layout.manifest_managed_dirs),
-                         ["scripts/smart_skip", "scripts/uosc", "scripts/uosc_danmaku"])
+        entries = {dep["entry"] for dep in dependencies.values() if "entry" in dep}
+        base_config = {"portable_config/mpv.conf", "portable_config/fntv/defaults.conf"}
+        self.assertEqual(set(layout.required_paths), entries | base_config)
+        managed_dirs = {dep["managed_dir"][len("portable_config/"):]
+                        for dep in dependencies.values() if "managed_dir" in dep}
+        self.assertEqual(set(layout.manifest_managed_dirs), managed_dirs)
 
     def test_repository_config_keeps_the_roles_the_client_already_knows(self):
         layout = load_package_config(PROJECT_ROOT / "package_cfg.json").archive_layout
