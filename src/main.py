@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .build import BuildFailed, BuildScope, build
-from .dependency_source import DependencySource
+from .dependency_source import remove_temp_dir
 from .install_manager import InstallManager
 from .log_setup import setup_logging
 from .package_archive import remove_package_archives, validate_package_timestamp
@@ -33,7 +33,7 @@ def clean_directories(config: PackageConfig, clean_temp: bool, clean_output: boo
         OSError: 删除失败
     """
     if clean_temp:
-        DependencySource(config.temp_dir).clean()
+        remove_temp_dir(config.temp_dir)
 
     if clean_output:
         if not config.output_dir.exists():
@@ -116,7 +116,8 @@ def create_cli_parser() -> argparse.ArgumentParser:
         '--skip-download',
         action='store_true',
         help='离线模式：不访问网络，GitHub Release 依赖只用临时目录里上次下载的压缩包'
-             '（上次构建需带 --skip-cleanup），没有就失败；离线构建结束时同样会删掉临时目录，'
+             '（上次构建需带 --skip-cleanup），没有、或它的来源与打包配置不一致（例如改了版本）就失败；'
+             '离线构建结束时同样会删掉临时目录，'
              '要连续离线构建就每次都带 --skip-cleanup'
     )
 

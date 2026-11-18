@@ -6,7 +6,7 @@ from typing import Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 import requests
 
-from .dependency_source import DependencySource, FetchError
+from .dependency_source import DependencySource, FetchError, remove_temp_dir
 from .download_manager import DownloadManager
 from .install_manager import InstallError, InstallManager
 from .manifest import KnownHashes, ManifestError
@@ -88,7 +88,7 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
 
     if not keep_temp:
         try:
-            source.clean()
+            remove_temp_dir(config.temp_dir)
         except OSError as e:
             logger.warning(f"清理临时目录失败: {e}")
     return result

@@ -85,13 +85,14 @@ tests/
   - tar.gz 能解压；成员路径越出目标目录时报 `ExtractError`，不写出文件
 
 #### 2. test_dependency_source.py - 依赖来源测试
-- **TestDependencySource**: 全部经 `DependencySource.fetch` / `clean` 测，下载器用 mock 替换
+- **TestDependencySource**: 全部经 `DependencySource.fetch` / `remove_temp_dir` 测，下载器用 mock 替换
   - 本地文件夹原样作为内容目录，不碰 temp
   - 本地压缩包解压到 temp，单一外层根目录被去掉
   - 本地路径不存在时报 `FetchError`
   - 下载后解压，同一依赖之前下载的旧压缩包被删掉
-  - 离线模式用 temp 里缓存的压缩包、不调用下载器；没有缓存时报 `FetchError`
-  - `clean` 删掉整个 temp
+  - 离线模式用上次联网下载的压缩包、不调用下载器
+  - 离线模式下没有缓存、只有压缩包没有来源记录、缓存的是另一个版本、压缩包被换过，都报 `FetchError`
+  - `remove_temp_dir` 删掉整个 temp
 
 #### 2b. test_dependency_layout.py - 依赖布局测试
 - **TestLoadLayout**: 全部经 `load_layout` 测
@@ -234,8 +235,8 @@ OK
 ## 测试覆盖的修改内容
 
 ### 1. 依赖来源
-- ✅ `DependencySource.fetch()` - 本地文件夹、本地压缩包、下载、离线缓存
-- ✅ `DependencySource.clean()` - 删除临时目录
+- ✅ `DependencySource.fetch()` - 本地文件夹、本地压缩包、下载、离线缓存（按来源记录核对）
+- ✅ `remove_temp_dir()` - 删除临时目录
 
 ### 2. 安装管理器重构
 - ✅ `InstallManager.install_dependency()` - 按依赖布局的 `install_to` 或自定义规则安装
