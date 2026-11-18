@@ -69,7 +69,7 @@ def _check_archive(manifest: Manifest, names: Set[str], portable: Dict[str, byte
     for d in layout.manifest_managed_dirs:
         if d not in manifest.managed_dirs:
             errors.append(f"managedDirs 缺少 {d}")
-    errors.extend(_check_managed_dirs(manifest, layout))
+    errors.extend(_check_managed_dirs(manifest, layout, names))
 
     for f in manifest.files:
         if f.path not in portable:
@@ -89,13 +89,14 @@ def _check_archive(manifest: Manifest, names: Set[str], portable: Dict[str, byte
     return errors
 
 
-def _check_managed_dirs(manifest: Manifest, layout: DependencyLayout) -> List[str]:
+def _check_managed_dirs(manifest: Manifest, layout: DependencyLayout, names: Set[str]) -> List[str]:
     errors = []
-    prefix = PORTABLE_CONFIG + "/"
-    entries = [path[len(prefix):] for path in layout.required_paths if path.startswith(prefix)]
+    entry_of = {p.managed_dir[len(PORTABLE_CONFIG) + 1:]: p.entry
+                for p in layout.placements.values() if p.managed_dir is not None}
     for d in manifest.managed_dirs:
-        if not any(entry.startswith(d + "/") for entry in entries):
-            errors.append(f"托管目录 {d} 里没有任何客户端依赖的入口文件，客户端会整体替换它")
+        if entry_of.get(d) not in names:
+            errors.append(f"托管目录 {d} 不是哪个依赖的 managed_dir，或它的入口文件不在 zip 里，"
+                          "客户端会整体替换它")
         for f in manifest.files:
             if f.path.startswith(d + "/") and f.role != "managed":
                 errors.append(f"{f.path} 在托管目录 {d} 里，role 应为 'managed'，实际为 {f.role!r}")

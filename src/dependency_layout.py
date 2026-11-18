@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, List, Mapping, NamedTuple, Optional, Tuple
 
@@ -57,11 +58,14 @@ class DependencyLayout:
         return [p.managed_dir[len(prefix):] for p in self.placements.values()
                 if p.managed_dir is not None]
 
+    @cached_property
+    def _config_roles(self) -> Mapping[str, str]:
+        config_files = self.base_config + tuple(f for p in self.placements.values() for f in p.custom_config)
+        return {f.portable_config_path: f.role for f in config_files}
+
     def role_of(self, portable_config_path: str) -> str:
         """custom_config 里的文件按它声明的归属，其余都是依赖装进来的，归托管"""
-        config_files = self.base_config + tuple(f for p in self.placements.values() for f in p.custom_config)
-        roles = {f.portable_config_path: f.role for f in config_files}
-        return roles.get(portable_config_path, "managed")
+        return self._config_roles.get(portable_config_path, "managed")
 
 
 def load_layout(dependencies: Mapping[str, Mapping[str, Any]], custom_config_dir: Path,
@@ -101,7 +105,7 @@ def _check_managed_dirs_hold_only_managed_files(layout: DependencyLayout, owners
     for managed_dir in layout.manifest_managed_dirs:
         for path, owner in owners.items():
             role = layout.role_of(path)
-            if path.startswith(managed_dir + "/") and role != "managed":
+            if role != "managed" and path.startswith(managed_dir + "/"):
                 raise LayoutError(f"{owner} 的 {path} 装进托管目录 {managed_dir}，客户端会整体替换它，"
                                   f"归属必须声明为 managed，现在是 {role}")
 
