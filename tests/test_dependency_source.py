@@ -2,10 +2,11 @@ import shutil
 import tempfile
 import unittest
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-from src.dependency_source import DependencySource, FetchError
+from src.dependency_source import DependencySource, FetchError, remove_temp_dir
 from src.package_config import GithubRelease, LocalArchive, LocalDir
 
 UOSC = GithubRelease(owner="tomasklaen", repo="uosc", version="5.13.0",
@@ -17,6 +18,14 @@ def write_zip(path: Path, files: dict):
     with zipfile.ZipFile(path, "w") as z:
         for name, data in files.items():
             z.writestr(name, data)
+
+
+def download_uosc(main_lua: str):
+    def download(name, release, dest_dir):
+        archive = dest_dir / "uosc.zip"
+        write_zip(archive, {"scripts/uosc/main.lua": main_lua, "fonts/a.otf": ""})
+        return archive
+    return download
 
 
 class TestDependencySource(unittest.TestCase):
@@ -54,27 +63,35 @@ class TestDependencySource(unittest.TestCase):
     def test_download_is_unpacked_and_older_downloads_are_dropped(self):
         old = self.temp_dir / "uosc" / "uosc-old.zip"
         write_zip(old, {"old.lua": ""})
-
-        def download(name, release, dest_dir):
-            archive = dest_dir / "uosc.zip"
-            write_zip(archive, {"scripts/uosc/main.lua": "-- uosc", "fonts/a.otf": ""})
-            return archive
-        self.downloader.download.side_effect = download
+        self.downloader.download.side_effect = download_uosc("-- uosc")
 
         content = self.source.fetch("uosc", UOSC)
 
         self.assertTrue((content / "scripts" / "uosc" / "main.lua").is_file())
         self.assertFalse(old.exists())
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
+        self.assertTrue((offline.fetch("uosc", UOSC) / "scripts" / "uosc" / "main.lua").is_file())
 
     def test_offline_uses_the_cached_download(self):
-        write_zip(self.temp_dir / "uosc" / "uosc.zip",
-                  {"scripts/uosc/main.lua": "-- cached", "fonts/a.otf": ""})
+        self.downloader.download.side_effect = download_uosc("-- cached")
+        self.source.fetch("uosc", UOSC)
+        self.downloader.reset_mock()
         offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
 
         content = offline.fetch("uosc", UOSC)
 
         self.assertEqual((content / "scripts" / "uosc" / "main.lua").read_text(), "-- cached")
         self.downloader.download.assert_not_called()
+
+    def test_offline_fails_when_the_cached_download_is_another_version(self):
+        self.downloader.download.side_effect = download_uosc("-- 5.12")
+        self.source.fetch("uosc", replace(UOSC, version="5.12.0"))
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
+
+        with self.assertRaises(FetchError) as caught:
+            offline.fetch("uosc", UOSC)
+        self.assertIn("5.12.0", str(caught.exception))
+        self.assertIn("5.13.0", str(caught.exception))
 
     def test_offline_without_cache_fails(self):
         offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
@@ -83,10 +100,26 @@ class TestDependencySource(unittest.TestCase):
             offline.fetch("uosc", UOSC)
         self.downloader.download.assert_not_called()
 
-    def test_clean_removes_the_temp_dir(self):
+    def test_offline_fails_on_an_archive_left_without_its_source_record(self):
+        write_zip(self.temp_dir / "uosc" / "uosc.zip", {"scripts/uosc/main.lua": "-- unknown"})
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
+
+        with self.assertRaises(FetchError):
+            offline.fetch("uosc", UOSC)
+
+    def test_offline_fails_when_the_cached_archive_was_replaced(self):
+        self.downloader.download.side_effect = download_uosc("-- cached")
+        self.source.fetch("uosc", UOSC)
+        write_zip(self.temp_dir / "uosc" / "uosc.zip", {"scripts/uosc/main.lua": "-- replaced by hand"})
+        offline = DependencySource(self.temp_dir, offline=True, downloader=self.downloader)
+
+        with self.assertRaises(FetchError):
+            offline.fetch("uosc", UOSC)
+
+    def test_remove_temp_dir_removes_the_whole_temp_dir(self):
         write_zip(self.temp_dir / "uosc" / "uosc.zip", {"a": ""})
 
-        self.source.clean()
+        remove_temp_dir(self.temp_dir)
 
         self.assertFalse(self.temp_dir.exists())
 

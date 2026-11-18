@@ -143,7 +143,8 @@ python run.py --deps mpv uosc --skip-package
 # 检查 package_cfg.json 并列出所有依赖项及来源，标出停用的；配置不合法时退出码为 1
 python run.py --list
 
-# 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败。
+# 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败；
+# 改了依赖的仓库、版本、filename_pattern 或 format 后，缓存的压缩包对不上，也会失败，要先联网构建一次。
 # 默认运行结束会删掉 temp（离线构建也一样），所以先带 --skip-cleanup 联网构建一次；
 # 要连续离线构建，每次都带 --skip-cleanup
 python run.py --skip-cleanup
