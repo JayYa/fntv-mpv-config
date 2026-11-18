@@ -27,6 +27,20 @@ Apply every rule to the diff. CI already runs `ruff check .` and the tests, so t
       self.assertEqual(config["dependencies"]["uosc"]["version"], "5.13.0")
   ```
 
+- A rejection case breaks exactly one rule and asserts that rule's error message. A case that breaks a second rule as a side effect and checks only that some error came back is **masked**: delete the rule it names and the other rule's error keeps it green.
+
+  ```python
+  # Bad: masked. Line 1 is not the include (the rule under test), and line 2
+  # is no longer profile=fntv-defaults, so either check alone rejects it.
+  cases = {
+      "首个有效行不是 include": (
+          b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+  }
+  for problem, (mpv_conf, defaults) in cases.items():
+      with self.subTest(problem):
+          self.assertTrue(contract_test(self.make_zip(portable_files=...), ...))
+  ```
+
 ## Commits
 
 - Refactors and fixes land in separate commits; structural cleanup done along the way goes in the refactor.
