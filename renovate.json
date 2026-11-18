@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "group:allNonMajor"
+  ],
+  "rangeStrategy": "pin",
+  "minimumReleaseAge": "3 days",
+  "dependencyDashboard": {
+    "autoclose": true
+  },
+  "lockFileMaintenance": { "enabled": true },
+  "pip-compile": {
+    "managerFilePatterns": ["/(^|/)requirements(-dev)?\\.txt$/"]
+  },
+  "pip_requirements": { "enabled": false },
+  "packageRules": [
+    {
+      "description": "lupa 还没有 cp315 wheel，Python 先停在 3.14",
+      "matchManagers": ["pyenv"],
+      "matchDepNames": ["python"],
+      "allowedVersions": "<3.15"
+    }
+  ]
+}
