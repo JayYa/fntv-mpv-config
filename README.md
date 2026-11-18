@@ -99,7 +99,7 @@ pip install -r requirements.txt
 {
   "dependencies": {
     "mpv": {
-      "version": "20261108"
+      "version": "20261111"
     },
     "uosc": {
       "version": "5.13.0"
@@ -244,7 +244,7 @@ python run.py --clean all       # 两者都删
     "mpv": {
       "name": "mpv播放器",
       "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-      "version": "20261108",
+      "version": "20261111",
       "filename_pattern": "mpv-x86_64-{version}",
       "format": "7z",
       "install_to": ".",                // 内容目录整个装到安装包根目录
@@ -424,7 +424,7 @@ python run.py --clean all       # 两者都删
   "mpv": {
     "name": "mpv播放器",
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-    "version": "20261108",
+    "version": "20261111",
     "exclude_files": [
       "doc/**"              // 排除文档目录
     ]
