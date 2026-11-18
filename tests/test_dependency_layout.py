@@ -64,16 +64,20 @@ class TestLoadLayout(unittest.TestCase):
         with self.assertRaisesRegex(LayoutError, "plugin"):
             self.load({"plugin": {"install_to": ".", "exclude_files": ["doc/"]}})
 
-    def test_managed_dir_must_be_in_portable_config_and_hold_the_entry(self):
+    def test_managed_dir_must_be_in_portable_config(self):
+        with self.assertRaisesRegex(LayoutError, "plugin 的 managed_dir 必须在 portable_config/ 下"):
+            self.load({"plugin": {"install_to": "portable_config/scripts/a",
+                                  "entry": "scripts/a/main.lua", "managed_dir": "scripts/a"}})
+
+    def test_managed_dir_must_hold_the_entry(self):
         bad = [
             {"entry": "portable_config/scripts/a/main.lua", "managed_dir": "portable_config/scripts/b"},
             {"entry": "portable_config/scripts/ab/main.lua", "managed_dir": "portable_config/scripts/a"},
             {"managed_dir": "portable_config/scripts/a"},
-            {"entry": "mpv.exe", "managed_dir": "."},
         ]
         for extra in bad:
             with self.subTest(extra=extra):
-                with self.assertRaisesRegex(LayoutError, "plugin"):
+                with self.assertRaisesRegex(LayoutError, "plugin 的 managed_dir .* 必须包含它的 entry"):
                     self.load({"plugin": {"install_to": "portable_config/scripts/a", **extra}})
 
     def test_paths_stay_inside_the_package_archive(self):
@@ -138,7 +142,7 @@ class TestLoadLayout(unittest.TestCase):
             ({"uosc": {**uosc, "config_roles": {"script-opts/*.conf": "user"}}}, {}, "uosc"),
             ({"uosc": {**uosc, "config_roles": {"nothing.conf": "seed"}}}, {}, "nothing.conf"),
             ({"uosc": {**uosc, "config_roles": ["script-opts/*.conf"]}}, {}, "uosc"),
-            ({"uosc": uosc}, {"mpv.conf/": "managed"}, "base"),
+            ({"uosc": uosc}, {"mpv.conf/": "managed"}, "base_config_roles 不支持.*以 / 结尾"),
             ({"uosc": uosc}, {"shaders/**": "managed"}, "shaders"),
         ]
         for dependencies, base_roles, fragment in bad:
@@ -172,17 +176,12 @@ class TestLoadLayout(unittest.TestCase):
 
         layout = load_layout(dependencies, PROJECT_ROOT / "custom_config")
 
-        self.assertEqual(sorted(layout.required_paths), [
-            "mpv.exe",
-            "portable_config/fntv/defaults.conf",
-            "portable_config/mpv.conf",
-            "portable_config/scripts/smart_skip/main.lua",
-            "portable_config/scripts/thumbfast.lua",
-            "portable_config/scripts/uosc/main.lua",
-            "portable_config/scripts/uosc_danmaku/main.lua",
-        ])
-        self.assertEqual(sorted(layout.manifest_managed_dirs),
-                         ["scripts/smart_skip", "scripts/uosc", "scripts/uosc_danmaku"])
+        entries = {dep["entry"] for dep in dependencies.values() if "entry" in dep}
+        base_config = {"portable_config/mpv.conf", "portable_config/fntv/defaults.conf"}
+        self.assertEqual(set(layout.required_paths), entries | base_config)
+        managed_dirs = {dep["managed_dir"][len("portable_config/"):]
+                        for dep in dependencies.values() if "managed_dir" in dep}
+        self.assertEqual(set(layout.manifest_managed_dirs), managed_dirs)
 
     def test_repository_config_keeps_the_roles_the_client_already_knows(self):
         layout = load_package_config(PROJECT_ROOT / "package_cfg.json").archive_layout

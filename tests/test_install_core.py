@@ -257,6 +257,14 @@ class TestRepositoryCustomConfig(unittest.TestCase):
         stray_files = [p.name for p in self.custom_config_dir.iterdir() if p.is_file()]
         self.assertEqual(stray_files, [])
 
+    def test_danmaku_history_seed_holds_only_settings(self):
+        """uosc_danmaku 把观看记录写成以文件路径为键的对象，设置项（如 show_danmaku）是标量"""
+        history = json.loads((self.custom_config_dir / "uosc_danmaku" / "danmaku-history.json")
+                             .read_text(encoding="utf-8"))
+
+        viewing_records = [key for key, value in history.items() if isinstance(value, (dict, list))]
+        self.assertEqual(viewing_records, [])
+
 
 if __name__ == '__main__':
     # 运行测试

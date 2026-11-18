@@ -128,14 +128,20 @@ class TestContractTest(ArchiveFixture):
 
         self.assertFailsWith(self.make_zip(edit_manifest=wrong_role), "scripts/uosc/main.lua")
 
-    def test_every_managed_dir_holds_a_client_entry(self):
+    def test_managed_dirs_must_belong_to_a_dependency(self):
         def add_dir(m):
             m["managedDirs"].append("fonts")
 
         zip_path = self.make_zip(edit_manifest=add_dir,
                                  portable_files=dict(VALID_PORTABLE_CONFIG, **{"fonts/a.otf": b""}))
 
-        self.assertFailsWith(zip_path, "fonts")
+        self.assertFailsWith(zip_path, "托管目录 fonts")
+
+    def test_a_managed_dir_without_its_entry_fails(self):
+        files = dict(VALID_PORTABLE_CONFIG, **{"scripts/smart_skip/skip_window.lua": b"--"})
+        del files["scripts/smart_skip/main.lua"]
+
+        self.assertFailsWith(self.make_zip(portable_files=files), "托管目录 scripts/smart_skip")
 
     def test_client_entry_scripts_must_exist(self):
         files = dict(VALID_PORTABLE_CONFIG)
@@ -171,29 +177,30 @@ class TestContractTest(ArchiveFixture):
         del files["fntv/defaults.conf"]
         self.assertFailsWith(self.make_zip(portable_files=files), "fntv/defaults.conf")
 
-    def assertMpvConfRejected(self, mpv_conf, defaults=None):
-        files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
-        if defaults is not None:
-            files["fntv/defaults.conf"] = defaults
-        errors = contract_test(self.make_zip(portable_files=files), KnownHashes(), CLIENT_LAYOUT)
-        self.assertTrue(errors, f"应拒绝: {mpv_conf!r} / {defaults!r}")
-
     def test_mpv_conf_layering_is_checked(self):
         cases = {
             "首个有效行不是 include": (
-                b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'vo=gpu\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "首个有效行应为 include"),
             "include 路径没有 ~~/ 前缀，会按进程当前目录解析": (
-                b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'include="fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "必须带 ~~/ 前缀"),
             "include 写在 profile 段里": (
-                b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None),
+                b'[x]\ninclude="~~/fntv/defaults.conf"\nprofile=fntv-defaults\n', None,
+                "首个有效行应为 include"),
             "include 后没有紧跟 profile=fntv-defaults，默认值会排在用户设置之后": (
-                b'include="~~/fntv/defaults.conf"\nvo=gpu\n', None),
+                b'include="~~/fntv/defaults.conf"\nvo=gpu\n', None,
+                "include 行后应紧跟 profile=fntv-defaults"),
             "defaults.conf 的选项没放进 [fntv-defaults] 段": (
-                THIN_MPV_CONF, b"vo=gpu-next\n[fntv-defaults]\n"),
+                THIN_MPV_CONF, b"vo=gpu-next\n[fntv-defaults]\n",
+                "必须全部写在 [fntv-defaults] 段里"),
         }
-        for problem, (mpv_conf, defaults) in cases.items():
+        for problem, (mpv_conf, defaults, fragment) in cases.items():
             with self.subTest(problem):
-                self.assertMpvConfRejected(mpv_conf, defaults)
+                files = dict(VALID_PORTABLE_CONFIG, **{"mpv.conf": mpv_conf})
+                if defaults is not None:
+                    files["fntv/defaults.conf"] = defaults
+                self.assertFailsWith(self.make_zip(portable_files=files), fragment)
 
 
 class TestKnownHashesKept(ArchiveFixture):
@@ -269,6 +276,8 @@ class TestCheckArchiveCommandLine(ArchiveFixture):
 
         self.assertEqual(same.returncode, 0, same.stdout + same.stderr)
         self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("不存在", missing.stdout)
+        self.assertNotIn("Traceback", missing.stderr)
         self.assertNotEqual(different.returncode, 0)
         self.assertIn("fntv-manifest.json", different.stdout)
 

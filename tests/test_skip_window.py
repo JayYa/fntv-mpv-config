@@ -84,10 +84,17 @@ EPISODE_CHAPTERS = [
 
 
 class TestChapterWindows(SkipWindowTestCase):
-    def test_chapter_mode_takes_the_op_and_ed_chapters_and_ignores_lengths(self):
+    def test_chapter_mode_takes_the_op_and_ed_chapters(self):
         self.assertEqual(
             self.windows(EPISODE, {"intro": 60, "outro": 60}, mode="CHAPTER", chapters=EPISODE_CHAPTERS),
             {"intro": [30, 120], "outro": [1300, 1390]},
+        )
+
+    def test_chapter_mode_ignores_lengths_for_a_segment_without_chapter(self):
+        only_op = EPISODE_CHAPTERS[:3]
+        self.assertEqual(
+            self.windows(EPISODE, {"intro": 60, "outro": 100}, mode="CHAPTER", chapters=only_op),
+            {"intro": [30, 120]},
         )
 
     def test_chapter_mode_without_chapters_has_no_window(self):
