@@ -8,5 +8,6 @@
   "minimumReleaseAge": "3 days",
   "dependencyDashboard": {
     "autoclose": true
-  }
+  },
+  "lockFileMaintenance": { "enabled": false }
 }
