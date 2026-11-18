@@ -122,6 +122,32 @@ class TestCommandLine(unittest.TestCase):
 
         self.assertEqual(code, 1)
 
+    def test_clean_output_removes_the_build_output_and_keeps_the_rest(self):
+        out = self.tmp / "out"
+        (out / "fntv-mpv" / "portable_config").mkdir(parents=True)
+        (out / "mpv-package-20261110_224319.zip").write_bytes(b"zip")
+        (out / "fntv-manifest.json").write_text("{}", encoding="utf-8")
+        (out / "other.txt").write_text("keep", encoding="utf-8")
+        (self.tmp / "temp").mkdir()
+
+        code, _ = self.run_main("--clean", "output")
+
+        self.assertEqual(code, 0)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["other.txt"])
+        self.assertTrue((self.tmp / "temp").is_dir())
+
+    def test_a_name_that_is_not_one_directory_level_is_a_config_error(self):
+        self.config_path.write_text(json.dumps({
+            "name": "../escape",
+            "config": {"output_dir": "out", "temp_dir": "temp", "custom_config_dir": "custom_config"},
+            "dependencies": {},
+        }), encoding="utf-8")
+
+        code, out = self.run_main("--clean", "output")
+
+        self.assertEqual(code, 1)
+        self.assertIn("配置错误", out)
+
     def test_unknown_dependency_name_fails(self):
         code, out = self.run_main("--deps", "nope", "--skip-package", "--skip-download")
 

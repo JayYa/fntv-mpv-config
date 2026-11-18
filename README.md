@@ -570,17 +570,17 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 项目采用模块化设计，各模块职责明确：
 
-1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段
+1. **package_config.py**: `load_package_config` 把 `package_cfg.json` 读成打包配置（构建设置、依赖布局、各依赖的来源），加载时校验全部字段；project 目录（`project_dir`）由它给出，其它模块都从这里取
 2. **dependency_source.py**: `DependencySource.fetch` 把一个依赖变成内容目录（本地文件夹原样返回，压缩包解压并去掉单一外层根目录），独占 `temp_dir` 的布局；内部用 `download_manager.py`（选出唯一的 Release 资产并下载，HTTP 会话可注入）和 `extract.py`（按扩展名解压）
 3. **dependency_layout.py**: `load_layout` 从 `package_cfg.json` 读出依赖布局并校验：每个依赖装到哪、入口文件、托管目录、要复制的 custom_config 文件及其归属。安装、清单的归属和 `managedDirs`、契约测试的必需路径都从它来
-4. **InstallManager**: 先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
+4. **InstallManager**: 只认 project 目录，不知道输出目录：先清空 project 目录、装基础配置，再按依赖布局把内容目录和 custom_config 装进去
 5. **log_setup.py**: `setup_logging` 把日志输出到标准输出
 6. **package_archive.py**: `build_package_archive` 生成清单、打安装包并跑契约测试，不通过时抛 `ContractTestFailed`
 7. **contract_test.py**: `contract_test(安装包, 已知哈希, 依赖布局)` 是契约测试的唯一入口，返回全部错误；`build_package_archive` 和 `check_archive.py` 都调用它
 8. **manifest.py**: 清单的 JSON 格式只在这里：`Manifest.parse` 读入并一次报出全部结构错误，`Manifest.to_bytes` 写出；另有历史哈希（`load_history`）和已知哈希的合并。`build_manifest` 向依赖布局要每个文件的归属和 `managedDirs`
 9. **previous_manifest.py**: `load_known_hashes` 读历史哈希、取上一版清单（`PreviousRelease` 从最新一版 Release 下载，`PreviousManifestFile` 读本地文件）、经 `Manifest.parse` 校验后合并成已知哈希；上一版清单拿不到或结构不对时抛 `PreviousManifestError`，历史哈希文件读不出或结构不对时抛 `ManifestError`。`build()` 和 `check_archive.py` 都经它取已知哈希
-10. **build.py**: `build(打包配置, 构建范围)` 是构建流程的唯一入口：构建范围 `BuildScope` 决定只取依赖、取依赖并安装，还是完整打包；成功返回构建结果，任何失败都抛 `BuildFailed`，带上全部原因（契约测试的每条错误都在里面）。只处理部分依赖时不能完整打包。成功后删临时目录，失败时保留
-11. **main.py**: 命令行只负责把参数翻译成 `build()` 的调用，把 `BuildFailed` 逐条打印并以退出码 1 结束；`--list`、`--clean` 是接收打包配置的普通函数
+10. **build.py**: `build(打包配置, 构建范围)` 是构建流程的唯一入口：构建范围 `BuildScope` 决定只取依赖、取依赖并安装，还是完整打包；成功返回构建结果，任何失败都抛 `BuildFailed`，带上全部原因（契约测试的每条错误都在里面）。只处理部分依赖时不能完整打包。成功后删临时目录，失败时保留。`clean(打包配置, temp=…, output=…)` 删掉构建留下的东西：临时目录，或者 project 目录、安装包和清单资产
+11. **main.py**: 命令行只负责把参数翻译成 `build()` 的调用，把 `BuildFailed` 逐条打印并以退出码 1 结束；`--clean` 调 `build.clean`，`--list` 是接收打包配置的普通函数
 
 ### 扩展性
 

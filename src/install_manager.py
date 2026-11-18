@@ -4,6 +4,7 @@ from pathlib import Path, PurePosixPath
 from typing import Dict, Iterable, NamedTuple
 
 from .dependency_layout import ConfigFile, DependencyLayout, InstallRule, Placement, pattern_matcher
+from .manifest import PORTABLE_CONFIG
 
 
 class InstallError(Exception):
@@ -17,35 +18,17 @@ class _Installed(NamedTuple):
 
 class InstallManager:
 
-    def __init__(self, output_dir: Path, project_name: str):
-        """
-        Args:
-            output_dir: 输出目录
-            project_name: 项目名称，即 project 目录在输出目录下的名字
-
-        Raises:
-            ValueError: project_name 不是单独一级目录名（空、"."、".." 或含路径分隔符）
-        """
-        if project_name in ("", ".", "..") or Path(project_name).name != project_name:
-            raise ValueError(f"项目名称必须是单独一级目录名: {project_name!r}")
-        self.base_output_dir = Path(output_dir)
-        self.output_dir = self.base_output_dir / project_name
-        self.project_name = project_name
+    def __init__(self, project_dir: Path):
+        self.project_dir = Path(project_dir)
         self.logger = logging.getLogger(__name__)
-        self.portable_config_dir = self.output_dir / "portable_config"
+        self.portable_config_dir = self.project_dir / PORTABLE_CONFIG
         # 按 casefold 后的安装包内路径记，Windows 上只差大小写的路径是同一个文件
         self._installed: Dict[str, _Installed] = {}
 
-    def remove_project_dir(self):
-        """删掉 project 目录；输出目录里的其它东西不动"""
-        if self.output_dir.exists():
-            shutil.rmtree(self.output_dir)
-            self.logger.info(f"已删除 project 目录: {self.output_dir}")
-        self._installed.clear()
-
     def reset_project_dir(self):
         """清空 project 目录，让这次构建只含本次安装的文件"""
-        self.remove_project_dir()
+        remove_project_dir(self.project_dir)
+        self._installed.clear()
         self.portable_config_dir.mkdir(parents=True)
 
     def install_base_config(self, layout: DependencyLayout):
@@ -76,18 +59,24 @@ class InstallManager:
 
     def _install_config_files(self, owner: str, files: Iterable[ConfigFile]):
         for f in files:
-            archive_path = f"{self.portable_config_dir.name}/{f.portable_config_path}"
+            archive_path = f"{PORTABLE_CONFIG}/{f.portable_config_path}"
             earlier = self._installed.get(archive_path.casefold())
             if earlier is not None:
                 self.logger.info(f"{owner} 的配置替换了 {earlier.owner} 自带的 {earlier.archive_path}")
             self._copy(f.source, archive_path, owner)
 
     def _copy(self, source: Path, archive_path: str, owner: str):
-        target = self.output_dir / archive_path
+        target = self.project_dir / archive_path
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
         self._installed[archive_path.casefold()] = _Installed(archive_path, owner)
         self.logger.debug(f"已复制: {source} -> {target}")
+
+
+def remove_project_dir(project_dir: Path):
+    if project_dir.exists():
+        shutil.rmtree(project_dir)
+        logging.getLogger(__name__).info(f"已删除 project 目录: {project_dir}")
 
 
 def _sources_by_archive_path(name: str, rule: InstallRule, content_dir: Path) -> Dict[str, Path]:

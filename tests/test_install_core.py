@@ -37,20 +37,11 @@ class TestInstallManagerCore(unittest.TestCase):
         (scripts_dir / "data.txt").write_text("test data")
         
         # 创建安装管理器
-        self.install_manager = InstallManager(
-            output_dir=self.test_dir / "output",
-            project_name="test-config"
-        )
-    
+        self.install_manager = InstallManager(self.test_dir / "output" / "test-config")
+
     def tearDown(self):
         """清理测试环境"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-    
-    def test_project_name_must_be_one_directory_level(self):
-        for bad in ["", ".", "..", "a/b", "../x"]:
-            with self.subTest(name=bad):
-                with self.assertRaises(ValueError):
-                    InstallManager(self.test_dir / "output", bad)
 
     def test_reset_project_dir_keeps_the_rest_of_the_output_dir(self):
         output = self.test_dir / "output"
@@ -70,7 +61,7 @@ class TestInstallManagerCore(unittest.TestCase):
     def test_install_to_copies_the_content_dir_with_excludes(self):
         self.install({"install_to": "portable_config/scripts/test_plugin", "exclude_files": ["*.md"]})
 
-        target_dir = self.install_manager.output_dir / "portable_config" / "scripts" / "test_plugin"
+        target_dir = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证包含的文件
         self.assertTrue((target_dir / "main.lua").exists())
@@ -88,7 +79,7 @@ class TestInstallManagerCore(unittest.TestCase):
     def test_install_to_dot_puts_the_content_at_the_archive_root(self):
         self.install({"install_to": ".", "exclude_files": ["*.md"]})
 
-        root = self.install_manager.output_dir
+        root = self.install_manager.project_dir
         self.assertEqual((root / "main.lua").read_text(), "-- Main script")
         self.assertTrue((root / "scripts" / "helper.lua").exists())
         self.assertFalse((root / "README.md").exists())
@@ -103,7 +94,7 @@ class TestInstallManagerCore(unittest.TestCase):
         }]})
 
         # 验证文件安装到正确位置
-        target_path = self.install_manager.output_dir / "portable_config" / "scripts" / "test_plugin"
+        target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证lua文件已复制
         self.assertTrue((target_path / "helper.lua").exists())
@@ -124,7 +115,7 @@ class TestInstallManagerCore(unittest.TestCase):
         }]})
 
         # 验证文件安装到正确位置
-        target_path = self.install_manager.output_dir / "portable_config" / "scripts" / "test_plugin"
+        target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证根目录文件
         self.assertTrue((target_path / "main.lua").exists())
@@ -144,7 +135,7 @@ class TestInstallManagerCore(unittest.TestCase):
             path.write_text(rel)
 
     def installed(self, target):
-        root = self.install_manager.output_dir / target
+        root = self.install_manager.project_dir / target
         return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
 
     def test_patterns_without_a_slash_match_file_names_at_any_depth(self):
@@ -232,10 +223,7 @@ class TestRepositoryCustomConfig(unittest.TestCase):
         self.custom_config_dir = repo / "custom_config"
         dependencies = json.loads((repo / "package_cfg.json").read_text(encoding="utf-8"))["dependencies"]
         self.layout = load_layout(dependencies, self.custom_config_dir)
-        self.install_manager = InstallManager(
-            output_dir=Path(self.temp_dir) / "output",
-            project_name="test-config",
-        )
+        self.install_manager = InstallManager(Path(self.temp_dir) / "output" / "test-config")
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
