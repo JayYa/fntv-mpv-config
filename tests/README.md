@@ -23,5 +23,4 @@ python -m unittest tests.test_build              # 单个模块，从仓库根�
 - `test_main.py`：经 `main(argv)` 测参数到构建范围的映射、输出和退出码。
 - `test_package_archive.py`：直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 - `test_contract_test.py`：契约测试用从仓库 `package_cfg.json` 读出的依赖布局；也测根目录的 `check_archive.py`。
-- `test_package_defaults.py`：固定了 `mpv`、`uosc`、`uosc_danmaku` 的版本和下载地址。**升级依赖时要同时改这里的期望值。**
 - `test_skip_window.py`：用 `lupa` 内嵌的 Lua 5.1 加载 `local_packages/smart_skip/skip_window.lua`，不需要装 Lua 或 mpv。

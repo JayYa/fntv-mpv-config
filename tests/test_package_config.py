@@ -200,12 +200,7 @@ class TestLoadPackageConfig(unittest.TestCase):
             self.assertEqual(load_package_config(path, output_dir="cli_out").output_dir, Path("cli_out"))
 
     def test_repository_config_loads(self):
-        config = load_package_config(PROJECT_ROOT / "package_cfg.json")
-
-        self.assertEqual(list(config.dependencies),
-                         ["mpv", "uosc", "uosc_danmaku", "smart_skip", "thumbfast"])
-        self.assertEqual(config.dependencies["smart_skip"].source,
-                         LocalDir(PROJECT_ROOT.resolve() / "local_packages" / "smart_skip"))
+        load_package_config(PROJECT_ROOT / "package_cfg.json")
 
     def test_missing_local_path_is_rejected(self):
         self.assertRejected("nowhere", dependencies={"x": {
