@@ -48,8 +48,9 @@ tests/
 - **TestCommandLine**: 经 `main(argv)` 测
   - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
   - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
+  - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 - **TestBuildCommand**: 经 `main(argv)` 跑本地假依赖的构建
-  - `--skip-install` 只取依赖，`--skip-package` 安装但不打包
+  - `--skip-install` 只取依赖，`--skip-package` 安装但不打包，`--skip-cleanup` 保留临时目录
   - 构建失败时逐条打印原因并以退出码 1 结束；`--deps` 不带跳过开关时同样以 1 结束
   - `--result-file` 写出构建结果和 Release 说明
 
@@ -57,7 +58,6 @@ tests/
 - **TestPackaging**: 端到端，用本地假 mpv 和假插件跑完整的 `build()`；mpv 装到根目录、基础配置进安装包，返回的构建结果指向实际的安装包和清单，上次构建留在 project 目录里的文件不进安装包，经假会话取到的上一版 Release 清单的已知哈希进本次清单，停用的插件不进安装包、`components` 和 `managedDirs`，它的托管文件进 `obsolete`
 - **TestBuildFails**: 每种失败都抛 `BuildFailed` 并带上原因：只处理部分依赖却要完整打包、依赖名不存在或已停用（一次全部报出）、某个依赖取不到（指出是哪个依赖，保留临时目录和原始异常）、契约测试的每条错误
 - **TestTempDir**: 构建成功后删掉临时目录，`keep_temp` 时保留
-  - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 
 #### 1. test_download_manager.py - 下载器测试
 - **TestSelectAsset**: 直接拿资产列表调 `select_asset`

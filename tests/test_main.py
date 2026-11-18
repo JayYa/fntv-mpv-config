@@ -151,10 +151,6 @@ class TestBuildCommand(BuildTestCase):
                 code = e.code
         return code, out.getvalue()
 
-    @property
-    def project_dir(self) -> Path:
-        return self.tmp / "out" / json.loads(self.write_package_config().read_text(encoding="utf-8"))["name"]
-
     def test_skip_install_only_fetches(self):
         code, _ = self.run_main("--skip-install")
 
@@ -167,6 +163,16 @@ class TestBuildCommand(BuildTestCase):
         self.assertEqual(code, 0)
         self.assertTrue((self.project_dir / "mpv.exe").is_file())
         self.assertFalse(self.zip_path.exists())
+
+    def test_skip_cleanup_keeps_the_temp_dir(self):
+        leftover = self.tmp / "temp" / "mpv" / "mpv.zip"
+        leftover.parent.mkdir(parents=True)
+        leftover.write_bytes(b"cached")
+
+        code, _ = self.run_main("--skip-install", "--skip-cleanup")
+
+        self.assertEqual(code, 0)
+        self.assertTrue(leftover.exists())
 
     def test_a_failed_build_prints_every_reason_and_exits_1(self):
         self.dependencies["uosc"]["entry"] = "portable_config/scripts/uosc/missing.lua"
@@ -186,12 +192,10 @@ class TestBuildCommand(BuildTestCase):
 
     def test_writes_the_build_result(self):
         result_file = self.tmp / "ci" / "build-result.json"
-        argv = ["--config", str(self.write_package_config()), "--log-level", "ERROR",
-                "--package-timestamp", "20261114_235959", "--result-file", str(result_file),
-                "--manifest-history", str(self.write_empty_history())]
-        with mock.patch("sys.stdout", io.StringIO()):
-            main(argv)
 
+        code, _ = self.run_main("--result-file", str(result_file))
+
+        self.assertEqual(code, 0)
         data = json.loads(result_file.read_text(encoding="utf-8"))
         self.assertEqual(data["archiveVersion"], "fntv-mpv-v20261114_235959")
         self.assertTrue(Path(data["packagePath"]).is_file())

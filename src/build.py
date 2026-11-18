@@ -52,7 +52,7 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
         package_timestamp、history_path、previous 只在完整打包时用到。
 
     Raises:
-        BuildFailed: 依赖名不对、取依赖或安装失败、读不到已知哈希、安装包没通过契约测试
+        BuildFailed: 依赖名不对、准备 project 目录或取依赖、安装失败、读不到已知哈希、写不出安装包或没通过契约测试
     """
     targets = _target_dependencies(config, dependencies, scope)
     logger.info(f"将处理以下依赖项: {list(targets)}")
@@ -65,8 +65,11 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
 
     installing = scope is not BuildScope.FETCH
     if installing:
-        installer.reset_project_dir()
-        installer.install_base_config(config.archive_layout)
+        try:
+            installer.reset_project_dir()
+            installer.install_base_config(config.archive_layout)
+        except OSError as e:
+            raise BuildFailed([f"准备 project 目录失败: {e}"]) from e
     for name, entry in targets.items():
         try:
             content_dir = source.fetch(name, entry.source)
@@ -111,7 +114,7 @@ def _target_dependencies(config: PackageConfig, names: Optional[Sequence[str]],
         raise BuildFailed(problems + [hint])
     if scope is BuildScope.PACKAGE:
         raise BuildFailed(["只处理一部分依赖时打出的安装包不完整，不能完整打包；"
-                           "请改为只取依赖或只安装（--skip-package / --skip-install）"])
+                           "请改为只取依赖或只安装"])
     return {name: enabled[name] for name in names}
 
 
@@ -133,6 +136,8 @@ def _package(config: PackageConfig, installer: InstallManager, known: KnownHashe
                                         config.archive_layout, timestamp=timestamp)
     except ContractTestFailed as e:
         raise BuildFailed([f"契约测试失败: {error}" for error in e.errors]) from e
+    except OSError as e:
+        raise BuildFailed([f"写出安装包失败: {e}"]) from e
     logger.info(f"安装包已创建并通过契约测试: {package.path}（{package.archive_version}）")
     return package
 

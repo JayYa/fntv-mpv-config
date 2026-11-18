@@ -14,6 +14,7 @@ from tests.test_manifest import (SHA256_ABC, SHA256_DEF, SHA256_GHI, THIN_MPV_CO
                                  write_portable_config)
 
 PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_NAME = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]
 
 
 class BuildTestCase(unittest.TestCase):
@@ -84,7 +85,7 @@ class BuildTestCase(unittest.TestCase):
     def write_package_config(self) -> Path:
         config_path = self.tmp / "package_cfg.json"
         config_path.write_text(json.dumps({
-            "name": json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"],
+            "name": PROJECT_NAME,
             "version": "1.0.0",
             "config": {
                 "output_dir": str(self.tmp / "out"),
@@ -104,6 +105,10 @@ class BuildTestCase(unittest.TestCase):
     @property
     def zip_path(self) -> Path:
         return self.tmp / "out" / "mpv-package-20261114_235959.zip"
+
+    @property
+    def project_dir(self) -> Path:
+        return self.tmp / "out" / PROJECT_NAME
 
 
 class TestPackaging(BuildTestCase):
@@ -174,8 +179,7 @@ class TestPackaging(BuildTestCase):
         self.assertTrue({SHA256_DEF, SHA256_GHI} <= set(mpv_conf["knownHashes"]))
 
     def test_leftovers_from_an_earlier_build_stay_out_of_the_archive(self):
-        project_name = json.loads((PROJECT_ROOT / "package_cfg.json").read_text(encoding="utf-8"))["name"]
-        stale = self.tmp / "out" / project_name / "portable_config" / "scripts" / "uosc" / "removed.lua"
+        stale = self.project_dir / "portable_config" / "scripts" / "uosc" / "removed.lua"
         stale.parent.mkdir(parents=True)
         stale.write_bytes(b"-- removed upstream")
 

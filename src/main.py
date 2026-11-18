@@ -217,8 +217,12 @@ def main(argv: Optional[List[str]] = None):
         if args.list:
             list_dependencies(config)
         elif args.clean:
-            clean_directories(config, clean_temp=args.clean in ('temp', 'all'),
-                              clean_output=args.clean in ('output', 'all'))
+            try:
+                clean_directories(config, clean_temp=args.clean in ('temp', 'all'),
+                                  clean_output=args.clean in ('output', 'all'))
+            except OSError as e:
+                print(f"清理失败: {e}")
+                sys.exit(1)
         else:
             logger.info(f"开始构建 {config.project_name}")
             result = build(
@@ -240,8 +244,8 @@ def main(argv: Optional[List[str]] = None):
         for error in e.errors:
             print(f"  - {error}")
         sys.exit(1)
-    except (ConfigError, OSError) as e:
-        print(f"程序运行失败: {e}")
+    except ConfigError as e:
+        print(f"配置错误: {e}")
         sys.exit(1)
     except KeyboardInterrupt:
         print("\n操作被用户中断")
