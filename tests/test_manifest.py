@@ -227,8 +227,6 @@ SHA256_GHI = "50ae61e841fac4e8f9e40baf2ad36ec868922ea48368c18f9535e47db56dd7fb" 
 
 
 class TestHistory(unittest.TestCase):
-    """历史哈希：冻结的历史路径、哈希和归属，并入清单的 knownHashes 和 obsolete"""
-
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
 
@@ -248,37 +246,55 @@ class TestHistory(unittest.TestCase):
                 with self.assertRaisesRegex(ManifestError, "history.json"):
                     load_history(path)
 
-    def test_known_hashes_merge_history_and_removed_managed_paths_become_obsolete(self):
+    def build(self, history=None, previous=None):
         portable = self.tmp / "portable_config"
         write_portable_config(portable, {"mpv.conf": b"ghi", "scripts/uosc/main.lua": b"abc"})
+        return build_manifest(portable, ARCHIVE_VERSION, {}, CLIENT_LAYOUT,
+                              known=KnownHashes.merge(history, previous))
+
+    def obsolete_paths(self, manifest):
+        return [o.path for o in manifest.obsolete]
+
+    def test_known_hashes_of_history_and_previous_manifest_reach_the_files(self):
         history = ManifestHistory(("fntv-mpv-v1",), {
             "mpv.conf": HistoryFile("config", (SHA256_ABC,)),
             "scripts/uosc/main.lua": HistoryFile("managed", (SHA256_ABC, SHA256_DEF)),
-            "scripts/removed.lua": HistoryFile("managed", (SHA256_DEF,)),
-            "script-opts/removed.conf": HistoryFile("config", (SHA256_DEF,)),
-            "became-managed.conf": HistoryFile("config", (SHA256_ABC,)),
         })
-        previous = previous_manifest(
-            files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
-                    "knownHashes": [SHA256_ABC, SHA256_DEF]},
-                   {"path": "became-managed.conf", "sha256": SHA256_DEF, "role": "managed",
-                    "knownHashes": [SHA256_ABC, SHA256_DEF]}],
-            obsolete=[{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}])
+        previous = previous_manifest(files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
+                                             "knownHashes": [SHA256_ABC, SHA256_DEF]}])
 
-        manifest = build_manifest(portable, ARCHIVE_VERSION, {}, CLIENT_LAYOUT,
-                                  known=KnownHashes.merge(history, previous))
+        files = {f.path: f for f in self.build(history, previous).files}
 
-        files = {f.path: f for f in manifest.files}
         self.assertEqual(files["mpv.conf"].known_hashes,
                          tuple(sorted([SHA256_ABC, SHA256_DEF, SHA256_GHI])))
         self.assertEqual(files["scripts/uosc/main.lua"].known_hashes,
                          tuple(sorted([SHA256_ABC, SHA256_DEF])))
-        # 只有 managed 路径进 obsolete；删掉的 config 文件客户端一律保留；归属以上一版清单为准
+
+    def test_removed_managed_files_become_obsolete_with_their_hashes(self):
+        history = ManifestHistory(("fntv-mpv-v1",), {"scripts/removed.lua": HistoryFile("managed", (SHA256_DEF,))})
+        previous = previous_manifest(obsolete=[{"path": "scripts/gone-long-ago.lua", "knownHashes": [SHA256_GHI]}])
+
+        manifest = self.build(history, previous)
+
         self.assertEqual([(o.path, o.known_hashes) for o in manifest.obsolete], [
-            ("became-managed.conf", tuple(sorted([SHA256_ABC, SHA256_DEF]))),
             ("scripts/gone-long-ago.lua", (SHA256_GHI,)),
             ("scripts/removed.lua", (SHA256_DEF,)),
         ])
+
+    def test_removed_config_and_seed_files_are_kept_by_the_client(self):
+        history = ManifestHistory(("fntv-mpv-v1",), {
+            "script-opts/removed.conf": HistoryFile("config", (SHA256_DEF,)),
+            "removed-history.json": HistoryFile("seed", (SHA256_DEF,)),
+        })
+
+        self.assertEqual(self.obsolete_paths(self.build(history)), [])
+
+    def test_the_previous_manifest_role_wins_over_the_history_role(self):
+        history = ManifestHistory(("fntv-mpv-v1",), {"became-managed.conf": HistoryFile("config", (SHA256_ABC,))})
+        previous = previous_manifest(files=[{"path": "became-managed.conf", "sha256": SHA256_DEF,
+                                             "role": "managed", "knownHashes": [SHA256_DEF]}])
+
+        self.assertEqual(self.obsolete_paths(self.build(history, previous)), ["became-managed.conf"])
 
     def test_committed_history_covers_the_published_archives(self):
         history = load_history(PROJECT_ROOT / "manifest-history.json")
