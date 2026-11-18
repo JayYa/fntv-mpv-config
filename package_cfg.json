@@ -9,29 +9,31 @@
         "github_proxy": "https://ghfast.top",
         "enable_proxy": false
     },
+    "base_config_roles": {
+        "fntv/defaults.conf": "managed",
+        "shaders/**": "managed"
+    },
     "dependencies": {
         "mpv": {
             "name": "mpv播放器",
-            "enabled": true,
             "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-            "version": "20261108",
+            "version": "20261111",
             "filename_pattern": "mpv-x86_64-{version}",
             "format": "7z",
+            "install_to": ".",
+            "entry": "mpv.exe",
             "exclude_files": [
-                "doc/*"
+                "doc/**"
             ]
         },
         "uosc": {
             "name": "uosc插件",
-            "enabled": true,
             "url": "https://github.com/tomasklaen/uosc/releases",
             "version": "5.13.0",
             "filename_pattern": "uosc",
             "format": "zip",
-            "exclude_files": [
-                "*.md",
-                "LICENSE*"
-            ],
+            "entry": "portable_config/scripts/uosc/main.lua",
+            "managed_dir": "portable_config/scripts/uosc",
             "custom_install_rules": [
                 {
                     "from": "scripts",
@@ -47,11 +49,16 @@
         },
         "uosc_danmaku": {
             "name": "uosc弹幕插件",
-            "enabled": true,
             "url": "https://github.com/Tony15246/uosc_danmaku/releases",
             "version": "v2.1.0",
             "filename_pattern": "uosc_danmaku",
             "format": "zip",
+            "install_to": "portable_config/scripts/uosc_danmaku",
+            "entry": "portable_config/scripts/uosc_danmaku/main.lua",
+            "managed_dir": "portable_config/scripts/uosc_danmaku",
+            "config_roles": {
+                "danmaku-history.json": "seed"
+            },
             "exclude_files": [
                 "*.md",
                 "LICENSE*"
@@ -59,15 +66,17 @@
         },
         "smart_skip": {
             "name": "智能跳过片头片尾插件",
-            "enabled": true,
             "local_path": "./local_packages/smart_skip",
-            "version": "local"
+            "version": "local",
+            "install_to": "portable_config/scripts/smart_skip",
+            "entry": "portable_config/scripts/smart_skip/main.lua",
+            "managed_dir": "portable_config/scripts/smart_skip"
         },
         "thumbfast": {
             "name": "thumbfast缩略图插件",
-            "enabled": true,
             "local_path": "./local_packages/thumbfast",
             "version": "local",
+            "entry": "portable_config/scripts/thumbfast.lua",
             "custom_install_rules": [
                 {
                     "from": "",

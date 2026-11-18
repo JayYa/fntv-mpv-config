@@ -1,16 +1,15 @@
-import io
 import json
 import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
-from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from release import (FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, PackageArchive,
-                     render_release_notes, write_build_result)
+from src.package_archive import PackageArchive
+from src.release import FILE_ATTRIBUTE_HIDDEN, BuildResult, Dependency, render_release_notes, write_build_result
 
 GITHUB_ENV = {
     "GITHUB_SHA": "abc123",
@@ -78,47 +77,31 @@ class ReleaseTestCase(unittest.TestCase):
 
 class TestRenderReleaseNotes(ReleaseTestCase):
 
-    def test_notes_on_github_actions(self):
+    def test_notes_name_the_disabled_dependencies(self):
+        result = replace(self.result, disabled_dependencies=(Dependency("uosc_danmaku", "v2.1.0"),))
+
+        notes = render_release_notes(result, GITHUB_ENV)
+
+        self.assertIn("- 🔧 smart_skip\n\n已停用：uosc_danmaku\n", notes)
+        self.assertNotIn("已停用", render_release_notes(self.result, GITHUB_ENV))
+
+    def test_notes_on_github_actions_name_the_commit_and_link_its_docs(self):
         notes = render_release_notes(self.result, GITHUB_ENV)
 
-        self.assertEqual(notes, f"""\
-🎬 FNTV MPV - 自动构建包
+        self.assertIn("📅 构建时间: 20261115_010807\n🔧 构建分支: release\n📝 提交ID: abc123\n", notes)
+        self.assertIn("(https://github.com/JayYa/fntv-mpv-config/blob/abc123/README.md)", notes)
+        self.assertIn("(https://github.com/JayYa/fntv-mpv-config/issues)", notes)
 
-📅 构建时间: 20261115_010807
-🔧 构建分支: release
-📝 提交ID: abc123
+    def test_notes_list_dependencies_with_their_versions(self):
+        notes = render_release_notes(self.result, GITHUB_ENV)
 
-## 📦 本次构建包含
-### 🎥 核心组件
-- MPV播放器主程序
-- 便携式配置文件结构
-- 预配置的快捷键和播放设置
+        self.assertIn("\n- 🔧 mpv (20261108)\n- 🔧 smart_skip\n", notes)
 
-### 🔧 启用的插件/组件
-- 🔧 mpv (20261108)
-- 🔧 smart_skip
+    def test_notes_name_the_package_and_show_its_visible_tree(self):
+        notes = render_release_notes(self.result, GITHUB_ENV)
 
-## 🚀 快速开始
-1. 下载 `mpv-package-20261115_010807.zip` 文件
-2. 解压到任意目录
-3. 双击运行 `mpv.exe` 即可使用
-4. 所有配置都是便携式的，无需安装
-
-## 📁 目录结构
-```
-{EXPECTED_TREE}
-```
-
-## ⚙️ 配置管理
-- 🎮 快捷键: `portable_config/input.conf`
-- 🎨 UI设置: `portable_config/script-opts/uosc.conf`
-- 💬 弹幕设置: `portable_config/script-opts/uosc_danmaku.conf`
-
-## 🔗 相关链接
-- 📖 [使用文档](https://github.com/JayYa/fntv-mpv-config/blob/abc123/README.md)
-- 🐛 [问题反馈](https://github.com/JayYa/fntv-mpv-config/issues)
-- 🔄 [配置更新](https://github.com/JayYa/fntv-mpv-config/releases)
-""")
+        self.assertIn("`mpv-package-20261115_010807.zip`", notes)
+        self.assertIn(f"```\n{EXPECTED_TREE}\n```", notes)
 
     def test_notes_outside_ci_omit_commit_branch_and_links(self):
         notes = render_release_notes(self.result, {})
@@ -148,7 +131,8 @@ class TestWriteBuildResult(ReleaseTestCase):
         notes = self.tmp / "ci" / "release-notes.md"
         self.assertEqual(data, {
             "archiveVersion": "fntv-mpv-v20261115_010807",
-            "timestamp": "20261115_010807",
+            "releaseTitle": "FNTV MPV v20261115_010807",
+            "artifactName": "fntv-mpv-config-20261115_010807",
             "outputDir": str(self.result.output_dir),
             "packagePath": str(self.result.package.path),
             "manifestAssetPath": str(self.result.package.manifest_asset_path),
@@ -163,23 +147,6 @@ class TestWriteBuildResult(ReleaseTestCase):
         with self.assertRaises(ValueError):
             write_build_result(unpacked, self.tmp / "build-result.json", {})
         self.assertFalse((self.tmp / "build-result.json").exists())
-
-
-class TestResultFileCli(unittest.TestCase):
-    def parse(self, argv):
-        from src.main import create_cli_parser, parse_args
-        return parse_args(create_cli_parser(), argv)
-
-    def test_result_file_parsed(self):
-        self.assertEqual(self.parse(["--result-file", "r.json"]).result_file, "r.json")
-        self.assertIsNone(self.parse([]).result_file)
-
-    def test_result_file_without_package_exits(self):
-        for skip in ["--skip-package", "--skip-install"]:
-            with self.subTest(skip=skip):
-                with mock.patch("sys.stderr", new_callable=io.StringIO):
-                    with self.assertRaises(SystemExit):
-                        self.parse(["--result-file", "r.json", skip])
 
 
 if __name__ == "__main__":

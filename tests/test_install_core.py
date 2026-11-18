@@ -2,20 +2,17 @@
 安装管理器功能测试
 测试自定义安装规则和默认安装功能
 """
-import unittest
-import tempfile
+import json
 import shutil
-from pathlib import Path
 import sys
-import io
-import zipfile
-from datetime import datetime, timezone
-from unittest import mock
+import tempfile
+import unittest
+from pathlib import Path
 
-# 添加src目录到Python路径
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from install_manager import InstallManager, InstallError
+from src.dependency_layout import load_layout
+from src.install_manager import InstallError, InstallManager
 
 
 class TestInstallManagerCore(unittest.TestCase):
@@ -40,28 +37,31 @@ class TestInstallManagerCore(unittest.TestCase):
         (scripts_dir / "data.txt").write_text("test data")
         
         # 创建安装管理器
-        self.install_manager = InstallManager(
-            output_dir=self.test_dir / "output",
-            custom_config_dir=self.test_dir / "custom_config",
-            project_name="test-config"
-        )
-    
+        self.install_manager = InstallManager(self.test_dir / "output" / "test-config")
+
     def tearDown(self):
         """清理测试环境"""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-    
-    def test_default_installation(self):
-        """测试默认安装功能"""
-        dep_name = "test_plugin"
-        excludes = ["*.md"]  # 排除markdown文件
-        
-        # 执行默认安装
-        self.install_manager._install_extracted_files_default(
-            dep_name, self.source_dir, excludes
-        )
-        
-        # 验证文件已安装到正确位置（插件安装到portable_config/scripts/下）
-        target_dir = self.install_manager.output_dir / "portable_config" / "scripts" / dep_name
+
+    def test_reset_project_dir_keeps_the_rest_of_the_output_dir(self):
+        output = self.test_dir / "output"
+        (output / "test-config" / "stale").mkdir(parents=True)
+        (output / "other.txt").write_text("keep")
+
+        self.install_manager.reset_project_dir()
+
+        self.assertFalse((output / "test-config" / "stale").exists())
+        self.assertTrue(self.install_manager.portable_config_dir.is_dir())
+        self.assertEqual((output / "other.txt").read_text(), "keep")
+
+    def install(self, config):
+        layout = load_layout({"test_plugin": config}, self.test_dir / "custom_config")
+        self.install_manager.install_dependency(layout.placements["test_plugin"], self.source_dir)
+
+    def test_install_to_copies_the_content_dir_with_excludes(self):
+        self.install({"install_to": "portable_config/scripts/test_plugin", "exclude_files": ["*.md"]})
+
+        target_dir = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证包含的文件
         self.assertTrue((target_dir / "main.lua").exists())
@@ -75,24 +75,26 @@ class TestInstallManagerCore(unittest.TestCase):
         # 验证文件内容
         content = (target_dir / "main.lua").read_text()
         self.assertEqual(content, "-- Main script")
-    
+
+    def test_install_to_dot_puts_the_content_at_the_archive_root(self):
+        self.install({"install_to": ".", "exclude_files": ["*.md"]})
+
+        root = self.install_manager.project_dir
+        self.assertEqual((root / "main.lua").read_text(), "-- Main script")
+        self.assertTrue((root / "scripts" / "helper.lua").exists())
+        self.assertFalse((root / "README.md").exists())
+        self.assertFalse((root / "portable_config" / "scripts").exists())
+
     def test_custom_install_rule_basic(self):
         """测试基本自定义安装规则"""
-        rule = {
+        self.install({"custom_install_rules": [{
             "from": "scripts",
             "to": "portable_config/scripts/test_plugin",
             "filter": ["**/*.lua"]  # 只复制lua文件
-        }
-        
-        dep_name = "test_plugin"
-        
-        # 执行自定义安装
-        self.install_manager._apply_custom_config_rule(
-            dep_name, rule, self.source_dir
-        )
-        
+        }]})
+
         # 验证文件安装到正确位置
-        target_path = self.install_manager.output_dir / "portable_config" / "scripts" / "test_plugin"
+        target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证lua文件已复制
         self.assertTrue((target_path / "helper.lua").exists())
@@ -106,21 +108,14 @@ class TestInstallManagerCore(unittest.TestCase):
     
     def test_custom_install_rule_root_copy(self):
         """测试根目录复制规则"""
-        rule = {
+        self.install({"custom_install_rules": [{
             "from": ".",
             "to": "portable_config/scripts/test_plugin",
             "filter": ["**/*.lua", "**/*.json"]  # 复制lua和json文件
-        }
-        
-        dep_name = "test_plugin"
-        
-        # 执行自定义安装
-        self.install_manager._apply_custom_config_rule(
-            dep_name, rule, self.source_dir
-        )
-        
+        }]})
+
         # 验证文件安装到正确位置
-        target_path = self.install_manager.output_dir / "portable_config" / "scripts" / "test_plugin"
+        target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
         # 验证根目录文件
         self.assertTrue((target_path / "main.lua").exists())
@@ -133,82 +128,119 @@ class TestInstallManagerCore(unittest.TestCase):
         self.assertFalse((target_path / "README.md").exists())
         self.assertFalse((target_path / "scripts" / "data.txt").exists())
 
+    def write_source(self, files):
+        for rel in files:
+            path = self.source_dir / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(rel)
 
-class TestCreatePackageName(unittest.TestCase):
-    """安装包资产名的时间戳"""
+    def installed(self, target):
+        root = self.install_manager.project_dir / target
+        return sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
 
-    def setUp(self):
-        self.temp_dir = tempfile.mkdtemp()
-        self.install_manager = InstallManager(
-            output_dir=Path(self.temp_dir) / "output",
-            custom_config_dir=Path(self.temp_dir) / "custom_config",
-            project_name="test-config",
-        )
-        (self.install_manager.output_dir / "mpv.exe").write_text("stub")
+    def test_patterns_without_a_slash_match_file_names_at_any_depth(self):
+        self.write_source(["docs/CHANGELOG.md", "docs/LICENSE.txt", "docs/guide.txt"])
 
-    def tearDown(self):
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        self.install({"install_to": "out", "exclude_files": ["*.md", "LICENSE*"]})
 
-    def test_given_timestamp_names_package(self):
-        package = self.install_manager.create_package("20261110_224319")
+        self.assertEqual(self.installed("out"), [
+            "config.json", "docs/guide.txt", "main.lua", "scripts/data.txt", "scripts/helper.lua",
+        ])
 
-        self.assertEqual(package.name, "mpv-package-20261110_224319.zip")
-        self.assertEqual(package.parent, self.install_manager.base_output_dir)
-        with zipfile.ZipFile(package) as zf:
-            self.assertEqual(zf.namelist(), ["mpv.exe"])
+    def test_patterns_with_a_slash_are_anchored_at_the_rule_source(self):
+        self.write_source(["scripts/deep/x.lua", "vendor/scripts/y.lua"])
 
-    def test_default_timestamp_uses_beijing_time(self):
-        utc = datetime(2026, 11, 14, 17, 8, 7, tzinfo=timezone.utc)
-        with mock.patch("install_manager.datetime") as fake_datetime:
-            fake_datetime.now.side_effect = lambda tz: utc.astimezone(tz)
-            package = self.install_manager.create_package()
+        self.install({"custom_install_rules": [
+            {"from": ".", "to": "one", "filter": ["scripts/*"]},
+            {"from": ".", "to": "any", "filter": ["scripts/**/*.lua"]},
+        ]})
 
-        self.assertEqual(package.name, "mpv-package-20261115_010807.zip")
+        self.assertEqual(self.installed("one"), ["scripts/data.txt", "scripts/helper.lua"])
+        self.assertEqual(self.installed("any"), ["scripts/deep/x.lua", "scripts/helper.lua"])
 
-    def test_malformed_timestamp_rejected(self):
-        for bad in ["2026-11-10", "20261110_2243", "20261110_224319\n", "../x"]:
-            with self.subTest(bad=bad):
-                with self.assertRaises(InstallError):
-                    self.install_manager.create_package(bad)
-        self.assertEqual(list(self.install_manager.base_output_dir.glob("*.zip")), [])
+    def test_question_marks_classes_and_leading_double_stars(self):
+        self.write_source(["a1.lua", "a2.lua", "ab.lua", "[x].lua", "vendor/deep/z.json"])
 
+        self.install({"custom_install_rules": [
+            {"from": ".", "to": "digits", "filter": ["a[0-9].lua"]},
+            {"from": ".", "to": "not_digit", "filter": ["a[!0-9].lua"]},
+            {"from": ".", "to": "one_char", "filter": ["a?.lua"], "exclude": ["a1.*"]},
+            {"from": ".", "to": "literal", "filter": ["[[]x].lua"]},
+            {"from": ".", "to": "json", "filter": ["**/deep/*.json", "**\\config.json"]},
+        ]})
 
-class TestPackageTimestampCli(unittest.TestCase):
-    """--package-timestamp 在解析参数时就校验"""
+        self.assertEqual(self.installed("digits"), ["a1.lua", "a2.lua"])
+        self.assertEqual(self.installed("not_digit"), ["ab.lua"])
+        self.assertEqual(self.installed("one_char"), ["a2.lua", "ab.lua"])
+        self.assertEqual(self.installed("literal"), ["[x].lua"])
+        self.assertEqual(self.installed("json"), ["config.json", "vendor/deep/z.json"])
 
-    def test_valid_timestamp_parsed(self):
-        from src.main import create_cli_parser
-        args = create_cli_parser().parse_args(["--package-timestamp", "20261110_224319"])
-        self.assertEqual(args.package_timestamp, "20261110_224319")
+    def test_a_rule_whose_source_is_missing_fails_the_install(self):
+        with self.assertRaisesRegex(InstallError, "test_plugin.*fonts"):
+            self.install({"custom_install_rules": [{"from": "fonts", "to": "portable_config/fonts"}]})
 
-    def test_timestamp_defaults_to_none(self):
-        from src.main import create_cli_parser
-        self.assertIsNone(create_cli_parser().parse_args([]).package_timestamp)
+    def test_a_filter_that_installs_nothing_fails_the_install(self):
+        for rule in ({"from": ".", "to": "x", "filter": ["*.lua", "*.dll"]},
+                     {"from": ".", "to": "x", "filter": ["*.md"], "exclude": ["README*"]}):
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(InstallError, "test_plugin"):
+                    self.install({"custom_install_rules": [rule]})
 
-    def test_malformed_timestamp_exits(self):
-        from src.main import create_cli_parser
-        with mock.patch("sys.stderr", new_callable=io.StringIO):
-            with self.assertRaises(SystemExit):
-                create_cli_parser().parse_args(["--package-timestamp", "2026-11-10"])
+    def test_two_dependencies_installing_the_same_file_fail_the_install(self):
+        layout = load_layout({
+            "a": {"install_to": "portable_config/scripts"},
+            "b": {"custom_install_rules": [{"from": "scripts", "to": "portable_config/scripts",
+                                            "filter": ["helper.lua"]}]},
+        }, self.test_dir / "custom_config")
+        self.install_manager.install_dependency(layout.placements["a"], self.source_dir / "scripts")
+
+        with self.assertRaisesRegex(InstallError, "portable_config/scripts/helper.lua"):
+            self.install_manager.install_dependency(layout.placements["b"], self.source_dir)
+
+    def test_paths_that_differ_only_in_case_are_the_same_file(self):
+        with self.assertRaisesRegex(InstallError, "test_plugin 的两条安装规则"):
+            self.install({"custom_install_rules": [
+                {"from": "scripts", "to": "Out", "filter": ["helper.lua"]},
+                {"from": "scripts", "to": "out", "filter": ["helper.lua"]},
+            ]})
+
+    def test_custom_config_may_replace_a_file_the_dependency_ships(self):
+        custom = self.test_dir / "custom_config" / "test_plugin" / "scripts" / "test_plugin" / "main.lua"
+        custom.parent.mkdir(parents=True)
+        custom.write_text("-- customised")
+
+        self.install({"install_to": "portable_config/scripts/test_plugin"})
+
+        installed = self.install_manager.portable_config_dir / "scripts" / "test_plugin" / "main.lua"
+        self.assertEqual(installed.read_text(), "-- customised")
 
 
 class TestRepositoryCustomConfig(unittest.TestCase):
-    """用仓库里真实的 custom_config 安装，确认弹幕配置走按依赖目录复制的路径"""
 
     def setUp(self):
         self.temp_dir = tempfile.mkdtemp()
-        self.custom_config_dir = Path(__file__).parent.parent / "custom_config"
-        self.install_manager = InstallManager(
-            output_dir=Path(self.temp_dir) / "output",
-            custom_config_dir=self.custom_config_dir,
-            project_name="test-config",
-        )
+        repo = Path(__file__).parent.parent
+        self.custom_config_dir = repo / "custom_config"
+        dependencies = json.loads((repo / "package_cfg.json").read_text(encoding="utf-8"))["dependencies"]
+        self.layout = load_layout(dependencies, self.custom_config_dir)
+        self.install_manager = InstallManager(Path(self.temp_dir) / "output" / "test-config")
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    def test_base_config_installed_without_any_dependency(self):
+        self.install_manager.install_base_config(self.layout)
+
+        portable = self.install_manager.portable_config_dir
+        for rel in ("mpv.conf", "input.conf", "fntv/defaults.conf"):
+            self.assertEqual((portable / rel).read_bytes(),
+                             (self.custom_config_dir / "base" / rel).read_bytes())
+
     def test_uosc_danmaku_config_installed_from_dependency_dir(self):
-        self.install_manager.install_dependency("uosc_danmaku", {}, None)
+        content = Path(self.temp_dir) / "content"
+        content.mkdir()
+        (content / "main.lua").write_text("-- danmaku")
+        self.install_manager.install_dependency(self.layout.placements["uosc_danmaku"], content)
 
         portable = self.install_manager.portable_config_dir
         self.assertEqual(
@@ -224,6 +256,14 @@ class TestRepositoryCustomConfig(unittest.TestCase):
         """custom_config 根目录下的散文件不会被安装，出现即视为放错位置"""
         stray_files = [p.name for p in self.custom_config_dir.iterdir() if p.is_file()]
         self.assertEqual(stray_files, [])
+
+    def test_danmaku_history_seed_holds_only_settings(self):
+        """uosc_danmaku 把观看记录写成以文件路径为键的对象，设置项（如 show_danmaku）是标量"""
+        history = json.loads((self.custom_config_dir / "uosc_danmaku" / "danmaku-history.json")
+                             .read_text(encoding="utf-8"))
+
+        viewing_records = [key for key, value in history.items() if isinstance(value, (dict, list))]
+        self.assertEqual(viewing_records, [])
 
 
 if __name__ == '__main__':

@@ -5,6 +5,8 @@ from pathlib import Path
 from string import Template
 from typing import List, Mapping, NamedTuple, Optional, Tuple
 
+from .package_archive import PackageArchive
+
 RELEASE_NOTES_TEMPLATE = Path(__file__).parent.parent / "templates" / "release-notes.md"
 RELEASE_NOTES_NAME = "release-notes.md"
 
@@ -55,14 +57,6 @@ class Dependency(NamedTuple):
 
 
 @dataclass(frozen=True)
-class PackageArchive:
-    path: Path
-    manifest_asset_path: Path
-    archive_version: str
-    timestamp: str
-
-
-@dataclass(frozen=True)
 class BuildResult:
     """
     一次构建的结果
@@ -73,6 +67,7 @@ class BuildResult:
     project_dir: Path
     processed_dependencies: Tuple[Dependency, ...] = ()
     package: Optional[PackageArchive] = None
+    disabled_dependencies: Tuple[Dependency, ...] = ()
 
 
 def write_build_result(result: BuildResult, path: Path,
@@ -100,7 +95,8 @@ def write_build_result(result: BuildResult, path: Path,
     notes_path.write_text(render_release_notes(result, env), encoding="utf-8", newline="\n")
     data = {
         "archiveVersion": package.archive_version,
-        "timestamp": package.timestamp,
+        "releaseTitle": f"FNTV MPV v{package.timestamp}",
+        "artifactName": f"fntv-mpv-config-{package.timestamp}",
         "outputDir": str(result.output_dir),
         "packagePath": str(package.path),
         "manifestAssetPath": str(package.manifest_asset_path),
@@ -148,6 +144,8 @@ def render_release_notes(result: BuildResult, env: Optional[Mapping[str, str]] =
         f"- 🔧 {name} ({version})" if version else f"- 🔧 {name}"
         for name, version in result.processed_dependencies
     )
+    if result.disabled_dependencies:
+        dependencies += "\n\n已停用：" +"、".join(name for name, _ in result.disabled_dependencies)
 
     template = Template(RELEASE_NOTES_TEMPLATE.read_text(encoding="utf-8"))
     return template.substitute(

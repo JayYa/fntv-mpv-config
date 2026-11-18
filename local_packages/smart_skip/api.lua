@@ -24,11 +24,9 @@ SOFTWARE.
 GitHub: https://github.com/QiaoKes/fntv-mpv-config
 ]]
 
-local mp = require('mp')
 local msg = require('mp.msg')
 local mutils = require('./mutils')
 local http_async = require('./http_async')
-local opt = require('mp.options')
 
 local api = {}
 

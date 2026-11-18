@@ -8,36 +8,46 @@
 任何一条检查失败时退出码为 1。
 """
 import argparse
-import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+sys.path.insert(0, str(Path(__file__).parent))
 
-from manifest import check_archive, check_manifest_asset, load_history  # noqa: E402
+from src.contract_test import contract_test  # noqa: E402
+from src.manifest import ManifestError  # noqa: E402
+from src.package_config import ConfigError, load_package_config  # noqa: E402
+from src.previous_manifest import PreviousManifestError, PreviousManifestFile, load_known_hashes  # noqa: E402
+
+DEFAULT_CONFIG = Path(__file__).parent / "package_cfg.json"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="MPV 归档契约测试")
     parser.add_argument("zip_path", help="安装包 zip 路径")
     parser.add_argument("--archive-version", help="期望的 archiveVersion（本次 Release tag）")
-    parser.add_argument("--history", default=str(Path(__file__).parent / "manifest-history.json"),
+    parser.add_argument("--history",
                         help="历史哈希文件（默认: 仓库根目录的 manifest-history.json）")
     parser.add_argument("--previous-manifest",
                         help="上一版 Release 的 fntv-manifest.json；它的哈希也必须都还在")
     parser.add_argument("--manifest-asset",
                         help="Release 要单独上传的 fntv-manifest.json；必须存在且与 zip 里的相同")
+    parser.add_argument("--config", default=str(DEFAULT_CONFIG),
+                        help="读取依赖布局的配置文件（默认: 仓库根目录的 package_cfg.json）")
     args = parser.parse_args()
 
-    previous = None
-    if args.previous_manifest:
-        with open(args.previous_manifest, "r", encoding="utf-8") as f:
-            previous = json.load(f)
-    errors = check_archive(Path(args.zip_path), archive_version=args.archive_version,
-                           history=load_history(Path(args.history)),
-                           previous_manifest=previous)
-    if args.manifest_asset:
-        errors += check_manifest_asset(Path(args.zip_path), Path(args.manifest_asset))
+    try:
+        layout = load_package_config(args.config).archive_layout
+    except ConfigError as e:
+        print(f"读取打包配置失败: {e}")
+        return 1
+    previous = PreviousManifestFile(Path(args.previous_manifest)) if args.previous_manifest else None
+    try:
+        known = load_known_hashes(args.history, previous)
+    except (ManifestError, PreviousManifestError) as e:
+        print(e)
+        return 1
+    errors = contract_test(Path(args.zip_path), known, layout, archive_version=args.archive_version,
+                           manifest_asset=args.manifest_asset)
     if errors:
         print(f"契约测试失败（{len(errors)} 项）:")
         for error in errors:

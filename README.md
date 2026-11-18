@@ -6,7 +6,7 @@
 
 - 🎯 **自动化管理**: 自动下载MPV播放器和插件
 - 🔧 **版本控制**: 通过配置文件管理所有组件版本
-- 🔌 **插件热插拔**: 轻松启用/禁用插件
+- 🔌 **插件可配置**: 在 package_cfg.json 里增删或停用依赖项
 - 📦 **智能打包**: 自动创建便携式安装包
 - 🗜️ **多格式支持**: 支持7z、zip、rar等多种压缩格式
 - 🛠️ **自定义配置**: 支持自定义配置文件
@@ -36,23 +36,14 @@
 构建工具本身也有平台差异。CI 在 Windows 上构建。在 macOS 或 Linux 上本地运行 `run.py` 时：
 
 - py7zr 解不开 mpv 的 7z 包时，程序回退到 7-Zip 命令行，但只查找 `7z.exe`，所以这一步在 macOS 和 Linux 上会失败。
-- 文件排除模式用 Python 的 `fnmatch.fnmatch` 匹配，在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
 
 ## 项目结构
 
 ```
 fntv-mpv-config/
-├── src/                    # 源代码目录
-│   ├── __init__.py
-│   ├── main.py            # 主程序
-│   ├── config_manager.py  # 配置管理
-│   ├── download_manager.py # 下载管理
-│   ├── extract_manager.py # 解压管理
-│   ├── install_manager.py # 安装管理
-│   ├── log_manager.py     # 日志管理
-│   └── manifest.py        # 归档清单生成和契约测试
-├── custom_config/         # 自定义配置目录，按依赖项名分子目录
-│   ├── mpv/               # mpv.conf、input.conf、fntv/defaults.conf、shaders/
+├── src/                   # 构建工具的源代码，入口见“开发指南”
+├── custom_config/         # 自定义配置目录：base/ 是基础配置，其余按依赖项名分子目录
+│   ├── base/              # 基础配置：mpv.conf、input.conf、fntv/defaults.conf、shaders/
 │   ├── uosc/              # script-opts/uosc.conf
 │   ├── uosc_danmaku/      # script-opts/uosc_danmaku.conf、danmaku-history.json
 │   └── thumbfast/         # script-opts/thumbfast.conf
@@ -66,9 +57,7 @@ fntv-mpv-config/
 ├── requirements.txt       # Python依赖
 ├── run.py                 # 运行脚本
 ├── run_tests.py           # 测试运行器
-├── validate_config.py     # 检查 package_cfg.json
 ├── check_archive.py       # 对打包出的 zip 跑契约测试
-├── build_manifest_history.py # 生成 manifest-history.json
 └── README.md              # 文档
 ```
 
@@ -77,7 +66,7 @@ fntv-mpv-config/
 ### 1. 环境准备
 
 #### 系统要求
-- Python 3（CI 用 3.11）
+- Python 3.11.4 及以上（解压 tar 用到 `filter="data"`；CI 用 3.11）
 - 7-Zip（py7zr 解不开 mpv 的 7z 包时用它）
 - 可访问 GitHub。设置 `GITHUB_TOKEN` 或 `GH_TOKEN` 后，GitHub API 请求带认证，不受匿名每小时 60 次的限额
 
@@ -110,42 +99,41 @@ pip install -r requirements.txt
 {
   "dependencies": {
     "mpv": {
-      "version": "20261108",
-      "enabled": true
+      "version": "20261111"
     },
     "uosc": {
-      "version": "5.13.0",
-      "enabled": true
+      "version": "5.13.0"
     },
     "uosc_danmaku": {
       "version": "v2.1.0",
-      "enabled": true
+      "enabled": false
     }
   }
 }
 ```
 
+依赖默认启用。写 `"enabled": false` 就停用：它照样在加载时校验，但不下载、不安装，`custom_config/<名>/` 也不装；它的入口文件不再是必需的，装过的托管文件进清单的 `obsolete`，客户端会删掉，用户的 `script-opts/<名>.conf` 保留。mpv 本体也能停用。停用前先确认基础配置（如 `input.conf` 里的 `script-binding uosc/menu`）和其它插件不依赖它，构建不检查这些引用。`--list` 会标出停用的依赖，`--deps` 指定停用的依赖会报错。
+
 ### 3. 基本使用
 
-一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
+一次完整运行会下载并安装所有启用的依赖项，生成 `fntv-manifest.json`，打包 `<输出目录>/mpv-package-<时间>.zip` 并跑契约测试，最后删除 `temp_dir`。安装内容放在 `<输出目录>/<package_cfg.json 的 name>/`，当前是 `fntv-mpv/`；这个目录每次安装前都会先清空，安装包里只有本次安装的文件。任何一个依赖项失败或契约测试失败，程序都以退出码 1 结束。
 
 ```bash
 # 处理所有启用的依赖项
 python run.py
 
-# 只处理指定的依赖项（空格分隔）。契约测试要求所有托管插件都在，所以要同时跳过打包
+# 只处理指定的依赖项（空格分隔）。只装一部分依赖打不出完整的安装包，必须同时带 --skip-package 或 --skip-install
 python run.py --deps mpv uosc --skip-package
 
-# 列出已启用的依赖项（禁用的不显示）
+# 检查 package_cfg.json 并列出所有依赖项及来源，标出停用的；配置不合法时退出码为 1
 python run.py --list
 
-# 启用/禁用依赖项（会按 2 空格缩进重写整个 package_cfg.json）
-python run.py --enable uosc_danmaku
-python run.py --disable uosc_danmaku
-
-# 跳过下载，只安装（用于调试）
-# 依次在 temp/<名称>_extracted、temp/<名称>、temp/extracted_<名称>、local_packages/<名称> 里找已有内容
-python run.py --skip-download
+# 离线构建：不访问网络，网络依赖用 temp/<名称>/ 里上次下载的压缩包，没有就失败；
+# 改了依赖的仓库、版本、filename_pattern 或 format 后，缓存的压缩包对不上，也会失败，要先联网构建一次。
+# 默认运行结束会删掉 temp（离线构建也一样），所以先带 --skip-cleanup 联网构建一次；
+# 要连续离线构建，每次都带 --skip-cleanup
+python run.py --skip-cleanup
+python run.py --skip-download --skip-cleanup
 
 # 只下载，不安装，也不打包
 python run.py --skip-install
@@ -159,19 +147,20 @@ python run.py --package-timestamp 20261115_120000
 # 打包成功后写出构建结果 JSON，同目录生成 release-notes.md（CI 用；预览说明也可用）
 python run.py --result-file ./build/build-result.json
 
-# 并入上一版 Release 的清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
-python run.py --previous-manifest ./fntv-manifest.json
+# 并入上一版清单（默认只用仓库里的 manifest-history.json，可用 --manifest-history 换文件）
+python run.py --previous-release JayYa/fntv-mpv-config   # 下载该仓库最新一版 Release 的清单，拿不到就失败（CI 用）
+python run.py --previous-manifest ./fntv-manifest.json   # 或用本地文件；两者只能选一个
 
 # 使用本地包文件
-python run.py --deps local_plugin  # 配置文件中指定了local_path的依赖项
+python run.py --deps local_plugin --skip-package  # 配置文件中指定了local_path的依赖项
 
 # 输出到其它目录（不改 package_cfg.json；也可设环境变量 FNTV_MPV_OUTPUT_DIR）
 python run.py --output-dir ./output
 
 # 清理下载和构建目录
-python run.py --clean temp      # 清理临时下载文件
-python run.py --clean output    # 清理构建的安装包
-python run.py --clean all       # 清理所有临时文件和构建产物
+python run.py --clean temp      # 删掉整个 temp_dir
+python run.py --clean output    # 删掉 <输出目录>/fntv-mpv/、mpv-package-<时间>.zip 和 fntv-manifest.json，输出目录里的其它文件不动
+python run.py --clean all       # 两者都删
 ```
 
 ## 本地包支持
@@ -185,18 +174,10 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 {
   "my_local_plugin": {
     "name": "本地插件",
-    "enabled": true,
     "local_path": "./local_packages/plugin.zip",
     "version": "local",
-    "format": "zip",
-    "exclude_files": ["*.md", "LICENSE*"],
-    "custom_install_rules": [
-      {
-        "from": "scripts",
-        "to": "portable_config/scripts",
-        "filter": ["**/*"]
-      }
-    ]
+    "install_to": "portable_config/scripts/my_local_plugin",
+    "exclude_files": ["*.md", "LICENSE*"]
   }
 }
 ```
@@ -206,10 +187,8 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 {
   "my_folder_plugin": {
     "name": "本地文件夹插件",
-    "enabled": true,
     "local_path": "./local_packages/extracted_plugin",
-    "version": "folder",
-    "exclude_files": ["*.md", "test/**"],
+    "version": "local",
     "custom_install_rules": [
       {
         "from": "src",
@@ -222,26 +201,14 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 }
 ```
 
-#### 方式3：将 url 设置为本地路径
-```json
-{
-  "my_local_mpv": {
-    "name": "本地MPV",
-    "enabled": true,
-    "url": "./local_packages/mpv-local.7z",
-    "version": "local",
-    "filename_pattern": "mpv-local",
-    "format": "7z"
-  }
-}
-```
+本地依赖只认 `local_path`：路径是文件夹就当内容目录，是文件就按扩展名解压；不写 `url`、`filename_pattern`、`format`，写了会报错。`local_path` 在加载时就要存在。
 
 ### 支持格式
 - **压缩文件**：zip、7z、rar、tar、tar.gz、tar.bz2等所有支持的格式
 - **文件夹**：已解压的目录结构，系统会自动检测并跳过解压步骤
 
 ### 路径规则
-- **相对路径**：相对于 `temp_dir` 的上一级目录。`temp_dir` 是默认的 `./temp` 时就是项目根目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
+- **相对路径**：相对于配置文件（`package_cfg.json`）所在目录，如 `./local_packages/file.zip` 或 `./local_packages/folder`
 - **绝对路径**：完整路径，如 `C:/packages/file.zip` 或 `C:/packages/folder`
 
 ### 使用场景
@@ -254,9 +221,9 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 ### 注意事项
 - 支持所有网络下载支持的格式（zip、7z、rar等）
 - 文件夹方式支持直接指向已解压的目录
-- 安装规则（exclude_files、custom_install_rules）完全相同
-- 本地文件会被复制到临时目录，保持一致的处理流程
-- 文件夹方式会自动跳过解压步骤，提高处理效率
+- 依赖布局字段（install_to、custom_install_rules、exclude_files、entry、managed_dir、config_roles）完全相同
+- 本地压缩包直接解压到 `temp/<名称>/content/`，不先复制
+- 本地文件夹直接作为内容目录安装，不复制、不解压
 
 ## 配置文件详解
 
@@ -277,12 +244,13 @@ python run.py --clean all       # 清理所有临时文件和构建产物
     "mpv": {
       "name": "mpv播放器",
       "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-      "version": "20261108",
+      "version": "20261111",
       "filename_pattern": "mpv-x86_64-{version}",
       "format": "7z",
-      "enabled": true,
-      "exclude_files": [                // 排除不需要的文件
-        "doc/*"
+      "install_to": ".",                // 内容目录整个装到安装包根目录
+      "entry": "mpv.exe",               // 安装包里必须有的入口文件
+      "exclude_files": [                // 排除不需要的文件，只能和 install_to 一起用
+        "doc/**"
       ]
     },
     "uosc": {
@@ -291,19 +259,16 @@ python run.py --clean all       # 清理所有临时文件和构建产物
       "version": "5.13.0",
       "filename_pattern": "uosc",
       "format": "zip",
-      "enabled": true,
-      "exclude_files": [                // 有 custom_install_rules 时不生效
-        "*.md",
-        "LICENSE*"
-      ],
-      "custom_install_rules": [          // 自定义安装规则
+      "entry": "portable_config/scripts/uosc/main.lua",
+      "managed_dir": "portable_config/scripts/uosc",  // 客户端整体替换的目录
+      "custom_install_rules": [          // 自定义安装规则，和 install_to 二选一
         {
-          "from": "scripts",            // 从解压包的scripts目录
+          "from": "scripts",            // 从内容目录的scripts目录
           "to": "portable_config/scripts", // 安装到portable_config/scripts
           "filter": ["**/*"]            // 包含所有文件
         },
         {
-          "from": "fonts",              // 从解压包的fonts目录
+          "from": "fonts",              // 从内容目录的fonts目录
           "to": "portable_config/fonts", // 安装到portable_config/fonts
           "filter": ["**/*"]
         }
@@ -317,10 +282,19 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 #### 核心配置参数
 
-- `exclude_files`: 排除文件数组，在默认安装时排除不需要的文件和目录。依赖项有 `custom_install_rules` 时不生效
-- `custom_install_rules`: 自定义配置安装规则数组（可选）
-- `url`、`version`、`filename_pattern`、`format`: 网络依赖项必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，按以下顺序找资产：名字等于 `<filename_pattern>.<format>`；以 `filename_pattern` 开头、以 `.<format>` 结尾；含 `filename_pattern` 的全部关键词；该格式的唯一资产。`filename_pattern` 可含 `{version}` 占位符
-- `version` 也写进清单的 `components`
+每个依赖项在加载时校验，不合法就不构建；不认识的字段也报错。停用的依赖同样要校验通过。下面的路径都相对安装包根目录，不能是绝对路径或含 `..`：
+
+- `install_to`: 内容目录整个装到哪，如 mpv 的 `"."`、插件的 `"portable_config/scripts/<名>"`。和 `custom_install_rules` 必须且只能写一个，没有默认值
+- `custom_install_rules`: 自定义安装规则数组，按规则挑文件装
+- `exclude_files`: 排除文件数组，只能和 `install_to` 一起用；和 `custom_install_rules` 一起写会报错，排除要写进规则的 `exclude`
+- `entry`: 客户端离不开的入口文件（可选）。契约测试要求每个启用的依赖的 `entry` 都在安装包里；停用的依赖不要求
+- `managed_dir`: 客户端整体替换的目录（可选），必须在 `portable_config/` 下并包含 `entry`，写进清单的 `managedDirs`
+- `config_roles`: `custom_config/<依赖项名>/` 里不是 `config` 的文件（可选），模式到 `managed` 或 `seed` 的对象，见[归档清单](#归档清单-fntv-manifestjson)
+- `name`、`version`: 所有依赖必填的非空字符串；`name` 是显示名，写进 Release 说明
+- `url` 和 `local_path` 必须且只能写一个，决定依赖来源。`url` 必须是 `https://github.com/<owner>/<repo>/releases`，不能写本地路径
+- `url`、`filename_pattern`、`format`: GitHub Release 依赖必填。程序用 GitHub API 读 `version` 这个 tag 的 Release，先找名字等于 `<filename_pattern>.<format>` 的资产，没有时取唯一一个以 `filename_pattern` 开头、以 `.<format>` 结尾的资产。一个都没有、有不止一个，或 API 请求失败（如 403 限流）时构建失败，报错里列出现有资产或 HTTP 状态，不会猜文件名。`filename_pattern` 可含 `{version}` 占位符。`format` 只能是 `zip`、`7z`、`rar`、`tar`、`tar.gz`、`tar.bz2`、`tar.xz`，加载时校验；本地压缩包的扩展名也按这组格式校验。temp 里已有同名、大小与 Release 资产一致的文件时不重复下载
+- `enabled`: 是否打进安装包（可选），布尔值，默认 `true`
+- `version` 也写进清单的 `components`；停用的依赖不写
 
 #### 输出目录
 
@@ -332,6 +306,8 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 覆盖值只作用于本次运行，不会写回配置文件。`--clean output` 同样按这个顺序确定要清理的目录。
 
+`config` 里的 `output_dir`、`temp_dir`、`custom_config_dir` 必填，相对路径按 `package_cfg.json` 所在目录解析；`--output-dir` 和环境变量按当前工作目录解析。`github_proxy`、`enable_proxy` 可不写。顶层只能写 `name`（必填）、`version`、`description`、`config`、`base_config_roles`、`dependencies`。
+
 #### exclude_files 排除模式
 
 `exclude_files` 用于排除下载内容中不需要的文件，模式作用于相对内容根的路径：
@@ -339,68 +315,58 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 ```json
 {
   "exclude_files": [
-    "*.md",              // 排除任意深度的markdown文档（* 也匹配 /）
-    "LICENSE*",          // 排除许可证文件
-    "doc/*",            // 排除doc目录下的所有文件
-    "installer/*",      // 排除installer目录
-    "*.bat",            // 排除批处理文件
-    ".github/**",       // 排除任意一级名为.github的目录
-    "test/**",          // 排除任意一级名为test的目录
-    "docs/**"           // 排除任意一级名为docs的目录
+    "*.md",              // 任意深度的 markdown 文档
+    "LICENSE*",          // 任意深度的许可证文件
+    "doc/**",            // 内容根下 doc 目录里的全部文件
+    "installer/*",       // 内容根下 installer 目录的直接子文件
+    "**/.github/**",     // 任意一级名为 .github 的目录
+    "**/test/**"         // 任意一级名为 test 的目录
   ]
 }
 ```
 
-模式不是完整的 glob，`exclude_files`、`filter`、`exclude` 都按下表匹配（`InstallManager._matches_pattern`）：
+`exclude_files`、`filter`、`exclude` 都是 gitignore 式模式，区分大小写：
 
 | 模式 | 匹配 |
 | --- | --- |
-| `**/*` | 所有文件 |
-| `**/<文件名模式>` | 任意深度下文件名匹配的文件，如 `**/*.lua`。`**/test/**` 这种只比较文件名，匹配不到任何文件 |
-| `<目录>/**` | 路径中任意一级目录名等于 `<目录>` 的文件 |
-| `<前缀>/**/<后缀>` | 路径同时含 `<前缀>` 和 `<后缀>` 两个子串的文件 |
-| 其他 | `fnmatch.fnmatch` 匹配整个相对路径，`*` 也匹配 `/` |
+| 不含 `/`，如 `*.md`、`thumbfast.lua` | 任意深度下文件名匹配的文件 |
+| 含 `/`，如 `doc/*`、`scripts/**/*.lua` | 从内容根（规则里是 `from`）起的整条相对路径；`*`、`?`、`[...]` 不跨 `/`，`**` 匹配任意层目录（含零层） |
 
-`fnmatch.fnmatch` 在 Windows 上不区分大小写，在 macOS 和 Linux 上区分。
+不支持以 `!` 或 `/` 开头、以 `/` 结尾的模式，写了在加载配置时报错。
 
 #### custom_install_rules 自定义安装规则
 
 `custom_install_rules` 用于定义特殊的文件安装规则，参考 Node.js extraFiles 功能设计：
 
-- `from`: 源目录路径（相对于解压后的根目录，可以为空）
+- `from`: 源目录或文件（相对于内容目录，可以为空，表示内容目录本身）
 - `to`: 目标目录路径（相对于输出子目录 `<输出目录>/<name>/`，不是相对于 `portable_config/`）
-- `filter`: 文件过滤器数组，支持glob模式（可选，默认为 `["**/*"]`）
-- `exclude`: 排除模式数组，支持glob模式（可选）
+- `filter`: 文件过滤器数组（可选，默认为 `["**/*"]`）
+- `exclude`: 排除模式数组（可选）
 
-**设计理念**：
-- 简洁的 `from` -> `to` 映射关系
-- 统一的路径处理逻辑，避免复杂的特殊情况判断
-- 灵活的过滤器和排除规则支持
+规则只能写这四个字段，写了别的（比如把 `exclude` 拼成 `excludes`）加载配置时报错。模式见上面的模式表。
 
-**支持的文件模式**：
-  - `**/*`: 所有文件
-  - `*.lua`: 所有Lua文件
-  - `script-opts/**`: script-opts目录下的所有文件
-  - `*.md`: 排除所有Markdown文件
-  - 完整规则见上面的模式表
+以下情况构建直接失败，报错写明依赖名和规则：
+- `from` 在内容目录里不存在
+- 某个 `filter` 在排除之后一个文件都没装进去（`install_to` 相当于一条 `filter: ["**/*"]` 的规则，所以内容目录全被排除掉也会失败）
+- 两个依赖（或依赖与 `custom_config/base/`）要装同一个文件；`custom_config/<依赖项名>/` 替换依赖自带的文件是允许的
 
 ### 配置工作原理
 
-1. **默认安装**: 没有 `custom_install_rules` 时，`mpv` 装到输出子目录根（与 `portable_config/` 同级），其他依赖项装到 `portable_config/scripts/<依赖项名>/`
-2. **文件排除**: 默认安装时应用 `exclude_files` 模式排除不需要的文件
-3. **自定义规则**: 如果定义了 `custom_install_rules`，则只按规则安装文件，排除只看规则里的 `exclude`
+1. **基础配置**: 清空 project 目录后，先把 `custom_config/base/` 复制进 `portable_config/`
+2. **install_to**: 内容目录整个装到 `install_to`（如 mpv 的 `.` 是输出子目录根，与 `portable_config/` 同级），按 `exclude_files` 排除
+3. **自定义规则**: 写了 `custom_install_rules` 的依赖只按规则安装文件，排除只看规则里的 `exclude`
 4. **自定义配置**: 最后把 `custom_config/<依赖项名>/` 复制进 `portable_config/`
 
 **安装路径处理**：
 - 目标路径统一相对于输出子目录 `<输出目录>/<name>/` 处理
 - 支持 `portable_config/` 前缀的完整路径
 - 空目标路径安装到输出子目录根，与 `portable_config/` 同级
-- `from` 不存在时记一条警告并跳过该规则
+- `from` 不存在时构建失败
 
 **配置规则示例**：
 ```json
 {
-  "from": "scripts",                    // 从解压包的scripts目录
+  "from": "scripts",                    // 从内容目录的scripts目录
   "to": "portable_config/scripts",      // 安装到输出目录的portable_config/scripts
   "filter": ["**/*.lua"],               // 只包含lua文件
   "exclude": ["test/**"]                // 排除测试目录
@@ -433,18 +399,14 @@ python run.py --clean all       # 清理所有临时文件和构建产物
     "name": "uosc插件", 
     "url": "https://github.com/tomasklaen/uosc/releases",
     "version": "5.13.0",
-    "exclude_files": [
-      "*.md",
-      "LICENSE*"
-    ],
     "custom_install_rules": [
       {
-        "from": "scripts",                    // 从解压包的scripts目录
+        "from": "scripts",                    // 从内容目录的scripts目录
         "to": "portable_config/scripts",      // 安装到portable_config/scripts
         "filter": ["**/*"]                    // 包含所有文件
       },
       {
-        "from": "fonts",                      // 从解压包的fonts目录
+        "from": "fonts",                      // 从内容目录的fonts目录
         "to": "portable_config/fonts",       // 安装到portable_config/fonts
         "filter": ["**/*"]
       }
@@ -462,9 +424,9 @@ python run.py --clean all       # 清理所有临时文件和构建产物
   "mpv": {
     "name": "mpv播放器",
     "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases",
-    "version": "20261108",
+    "version": "20261111",
     "exclude_files": [
-      "doc/*"              // 排除文档目录
+      "doc/**"              // 排除文档目录
     ]
   }
 }
@@ -474,15 +436,15 @@ python run.py --clean all       # 清理所有临时文件和构建产物
 
 ## 自定义配置
 
-在 `custom_config/<依赖项名>/` 下放置自定义配置文件。安装某个依赖项后，程序把对应子目录里的文件按原相对路径复制进最终的portable_config目录，覆盖同名文件。没有对应依赖项的子目录不会被复制，`custom_config` 根目录下也不要放散文件（测试会检查）。
+`custom_config/base/` 是基础配置：不属于任何依赖，每次构建都按原相对路径复制进 portable_config 目录。`custom_config/<依赖项名>/` 下放跟着某个依赖走的配置，安装该依赖后复制进去。两份配置要装到同一个路径时加载就报错，不会悄悄覆盖；依赖项也不能叫 `base`。没有对应依赖项的子目录不会被复制，`custom_config` 根目录下也不要放散文件（测试会检查）。
 
-这些文件在三个平台上都会同步到用户的 mpv 配置目录，写法要兼容三个平台，见[平台差异](#平台差异)。新增文件还要先在 `src/manifest.py` 的 `ROLE_RULES` 里有归属，见[归档清单](#归档清单-fntv-manifestjson)。
+这些文件在三个平台上都会同步到用户的 mpv 配置目录，写法要兼容三个平台，见[平台差异](#平台差异)。新增文件默认归属 `config`（用户可改）；要托管或只放一次，在 `base_config_roles` 或依赖的 `config_roles` 里声明，见[归档清单](#归档清单-fntv-manifestjson)。
 
 ### 目录结构
 
 ```
 custom_config/
-├── mpv/
+├── base/                 # 基础配置
 │   ├── input.conf        # 快捷键配置
 │   ├── mpv.conf          # MPV主配置（薄文件，给用户改）
 │   ├── fntv/
@@ -514,24 +476,24 @@ custom_config/
 
 - 使用Windows环境进行构建，产出的同一个 zip 供三个平台使用
 - 构建前先跑 `run_tests.py`，失败不构建
-- 下载上一版 Release 的 `fntv-manifest.json`，通过 `--previous-manifest` 并入本次清单
-- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、时间戳、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
+- `run.py --previous-release` 在下载依赖之前先取最新一版 Release 的 `fntv-manifest.json` 并入本次清单；那版没有清单、或清单的 `archiveVersion` 不是它的 tag 时构建失败
+- `run.py --result-file` 写出构建结果（`build-result.json`）：归档版本、Release 标题、artifact 名、输出目录、安装包和清单资产的路径、Release 说明的路径。workflow 只读这些字段，不自行推导命名
 - 时间戳是北京时间，Release tag 是 `fntv-mpv-v<时间>`，资产是 `mpv-package-<时间>.zip` 和 `fntv-manifest.json`
-- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：启用的插件、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
+- Release 说明由 `src/release.py` 按 `templates/release-notes.md` 生成：本次处理的依赖、停用的依赖、目录树，以及从 `GITHUB_*` 环境变量取的分支、提交和链接
 - 自动上传构建产物，保留 30 天
 
 ## 归档清单 fntv-manifest.json
 
-归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，生成和检查的代码在 `src/manifest.py`。
+归档根目录（与 `mpv.exe`、`portable_config/` 同级）带一份 `fntv-manifest.json`，客户端按它同步用户配置。格式和规则见 [JayYa/fntv-electron#219](https://github.com/JayYa/fntv-electron/issues/219)，格式和生成的代码在 `src/manifest.py`，契约测试在 `src/contract_test.py`。
 
 - `files[]` 列出 `portable_config` 下的每个文件：相对路径、`sha256`、`role`、`knownHashes`。
-- 归属（`role`）：`scripts/**`、`fonts/**`、`shaders/**`、`fntv/defaults.conf` 是 `managed`；`mpv.conf`、`input.conf`、`script-opts/*.conf` 是 `config`；`danmaku-history.json` 是 `seed`。新增文件如果不在这些规则里，打包会失败，要先在 `src/manifest.py` 的 `ROLE_RULES` 里给它定归属。
-- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release，由 `build_manifest_history.py` 生成，复现方法见脚本开头），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 自动下载，`--previous-manifest`）。
+- 归属（`role`）按文件的来源定：依赖装进来的文件都是 `managed`；`custom_config` 里的文件默认是 `config`，例外按模式声明在 `package_cfg.json` 顶层的 `base_config_roles`（基础配置）和各依赖的 `config_roles` 里，值只能是 `managed` 或 `seed`。现在声明的有：`fntv/defaults.conf`、`shaders/**` 是 `managed`，`danmaku-history.json` 是 `seed`。每个模式至少要命中一个文件；托管目录里的 custom_config 文件必须声明为 `managed`，否则加载配置时报错。
+- `knownHashes` = 该路径在历史归档里出现过的全部哈希 + 本次哈希。历史来自两处：仓库里的 `manifest-history.json`（本 fork 早于清单的 5 个 Release 里每个路径的哈希和归属；这些 Release 不会再有，文件已冻结），以及上一版 Release 的 `fntv-manifest.json` 资产（CI 用 `--previous-release` 自动下载；本地可用 `--previous-manifest` 指定文件）。
 - `obsolete`：历史里出现过、本次没有的托管路径，带它们的 `knownHashes`。删掉的 `config` 文件不进 `obsolete`，客户端一律保留。
 
 ### mpv.conf 分层
 
-默认值放在托管的 `custom_config/mpv/fntv/defaults.conf`，**全部写在 `[fntv-defaults]` 段里**；`mpv.conf` 是给用户改的薄文件，前两个有效行固定为：
+默认值放在托管的 `custom_config/base/fntv/defaults.conf`，**全部写在 `[fntv-defaults]` 段里**；`mpv.conf` 是给用户改的薄文件，前两个有效行固定为：
 
 ```
 include="~~/fntv/defaults.conf"
@@ -544,10 +506,10 @@ profile=fntv-defaults
 
 ### 契约测试
 
-打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、各托管插件入口脚本存在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip：
+打包后 `run.py` 自动跑契约测试：清单和 zip 一一对应、哈希正确、`role` 合法、`managedDirs` 里的文件都是 `managed` 且每个托管目录含一个入口文件、每个依赖声明的 `entry`（含根目录的 `mpv.exe`）和基础配置的 `mpv.conf`、`fntv/defaults.conf` 都在、`provides` 和 `managedDirs` 齐全、`knownHashes` 只增不减、zip 旁边单独上传的 `fntv-manifest.json` 与 zip 里的相同。任何一条失败，构建就失败，不会发版。手工检查一个 zip（入口文件和托管目录默认从仓库的 `package_cfg.json` 读，`--config` 换别的配置）：
 
 ```bash
-python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json]
+python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<时间> [--previous-manifest 上一版的fntv-manifest.json] [--config package_cfg.json]
 ```
 
 ## 配置架构说明
@@ -558,52 +520,46 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 
 #### 1. exclude_files - 文件排除层
 - **目的**: 排除下载内容中不需要的文件
-- **时机**: 在默认安装过程中应用；有 `custom_install_rules` 时不生效
+- **时机**: 按 `install_to` 安装时应用；和 `custom_install_rules` 一起写会报错
 - **适用场景**: 排除文档、许可证、调试文件等
 
 #### 2. custom_install_rules - 自定义安装层  
 - **目的**: 定义精确的文件安装规则
-- **时机**: 覆盖默认安装行为
+- **时机**: 代替 `install_to`，两者二选一
 - **适用场景**: 复杂的目录结构映射
 - **设计理念**: 参考 Node.js extraFiles 功能，简洁的路径映射
 
 ### 处理流程
 
 ```
-下载文件 → 解压 → 选择安装模式 → 过滤并复制文件 → 复制custom_config → 生成清单 → 打包 → 契约测试
+读取依赖布局 → 复制基础配置 → 下载文件 → 解压 → 过滤并复制文件 → 复制custom_config → 生成清单 → 打包 → 契约测试
 ```
 
-1. **下载解压**: 从GitHub下载并解压文件；本地文件夹跳过解压
-2. **安装模式选择**:
-   - 如果定义了`custom_install_rules`: 使用自定义规则安装，按规则的`filter`和`exclude`过滤
-   - 否则: 使用默认安装（直接复制到相应目录），按`exclude_files`过滤
-3. **自定义配置**: 把`custom_config/<依赖项名>/`复制进`portable_config/`
-4. **打包**: 生成`fntv-manifest.json`，打包zip并跑契约测试
+1. **依赖布局**: 读取并校验所有依赖项的 `install_to`、`custom_install_rules`、`entry`、`managed_dir`，再复制 `custom_config/base/`
+2. **下载解压**: 从GitHub下载并解压文件；本地文件夹跳过解压
+3. **安装**:
+   - 写了`install_to`: 整个内容目录装过去，按`exclude_files`过滤
+   - 写了`custom_install_rules`: 按规则安装，按规则的`filter`和`exclude`过滤
+4. **自定义配置**: 把`custom_config/<依赖项名>/`复制进`portable_config/`
+5. **打包**: 生成`fntv-manifest.json`（`managedDirs` 来自各依赖的 `managed_dir`），打包zip并跑契约测试（必需路径来自各依赖的 `entry` 和基础配置）
 
 ### 配置优先级
 
-- `custom_install_rules` > 默认安装
-- `exclude_files` 只在默认安装中应用
+- `install_to` 和 `custom_install_rules` 二选一
+- `exclude_files` 只和 `install_to` 一起用
 - 自定义规则中的 `exclude` > `filter`
 
 ## 开发指南
 
-### 模块设计
+### 从哪里读起
 
-项目采用模块化设计，各模块职责明确：
-
-1. **ConfigManager**: 配置文件的读取、验证和管理
-2. **DownloadManager**: 处理各种下载源的文件下载
-3. **ExtractManager**: 支持多种压缩格式的解压
-4. **InstallManager**: 根据规则安装文件和配置
-5. **LogManager**: 统一的日志管理
-6. **manifest.py**: 生成归档清单，对zip跑契约测试
+构建从 `src/main.py` 进入 `src/build.py` 的 `build()`，各 module 的职责看它的公开函数和 [GLOSSARY.md](GLOSSARY.md) 里的术语；不回改路径规则表这类决定的原因见 [docs/adr/](docs/adr/)。
 
 ### 扩展性
 
-- **添加新的下载源**: 在DownloadManager中扩展
-- **支持新的压缩格式**: 在ExtractManager中添加处理器
-- **自定义安装规则**: 修改InstallManager的规则处理逻辑
+- **添加新的依赖来源**: 在 `package_config.py` 加来源类型，在 `DependencySource.fetch` 里处理
+- **支持新的压缩格式**: 在 `extract.py` 的 `_EXTRACTORS` 表里加一项（格式 → 解压函数），`ARCHIVE_FORMATS` 和加载时的校验都从这张表来
+- **自定义安装规则**: 规则的解析和校验在 `dependency_layout.py`，按规则选文件、复制在 `install_manager.py`
 
 ### 调试技巧
 
@@ -611,7 +567,7 @@ python check_archive.py mpv-package-<时间>.zip --archive-version fntv-mpv-v<�
 # 启用详细日志（推荐用于排除模式调试）
 python run.py --log-level DEBUG
 
-# 跳过下载步骤（用于测试安装逻辑）
+# 离线重跑（用上次 --skip-cleanup 留下的压缩包，用于测试安装逻辑）
 python run.py --skip-download
 
 # 不清理临时文件（用于检查中间结果）
@@ -620,18 +576,16 @@ python run.py --skip-cleanup
 # 只处理特定依赖项（空格分隔），不打包
 python run.py --deps uosc uosc_danmaku --skip-package
 
-# 检查 package_cfg.json：缺少的字段、不存在的本地路径、不完整的安装规则
-python validate_config.py
+# 检查 package_cfg.json：缺少或多余的字段、不存在的本地路径、不合法的安装规则，出错时退出码为 1
+python run.py --list
 ```
 
 #### 文件排除调试
 
-当使用`--log-level DEBUG`时，可以看到每条规则的源和目标路径，以及每个复制的文件：
+当使用`--log-level DEBUG`时，可以看到每个复制的文件：
 
 ```
-DEBUG - 排除文件: ['doc/*']
-DEBUG - 应用自定义配置规则 [uosc]: temp\uosc_extracted\scripts -> output\fntv-mpv\portable_config\scripts
-DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
+DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 ```
 
 日志不列出被排除的文件。加上`--skip-cleanup`保留临时目录，对照解压结果和复制日志，就能看出哪些文件被排除了。
@@ -644,7 +598,7 @@ DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
 
 ```json
 {
-  "from": "source_path",    // 源路径（相对于解压目录）
+  "from": "source_path",    // 源路径（相对于内容目录）
   "to": "target_path",      // 目标路径（相对于输出子目录）
   "filter": ["**/*"],       // 可选：包含过滤器
   "exclude": []             // 可选：排除过滤器
@@ -654,8 +608,8 @@ DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
 ### 路径处理规则
 
 1. **源路径 (`from`)**：
-   - 相对于解压后的根目录
-   - 可以为空字符串（表示整个解压目录）
+   - 相对于内容目录
+   - 可以为空字符串（表示整个内容目录）
    - 示例：`"scripts"`、`"fonts"`、`""`
 
 2. **目标路径 (`to`)**：
@@ -687,7 +641,7 @@ DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
 #### 示例3：整个目录重新映射
 ```json
 {
-  "from": "",  // 整个解压目录
+  "from": "",  // 整个内容目录
   "to": "portable_config",
   "filter": ["**/*.lua"],
   "exclude": ["docs/**", "examples/**"]
@@ -698,7 +652,12 @@ DEBUG - 已复制: temp\uosc_extracted\scripts\uosc\main.lua -> output\...
 
 ## 运行测试
 
-项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络：
+项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络。每个 PR 和推到 `main` 的提交都会在 CI（`.github/workflows/ci.yml`）里跑 `ruff check .` 和全部测试；本地先装开发依赖：
+
+```bash
+pip install -r requirements-dev.txt
+ruff check .
+```
 
 ### 推荐方式：使用内置测试运行器
 
@@ -708,7 +667,7 @@ python run_tests.py
 
 # 输出示例：
 # 运行MPV配置管理工具测试...
-# test_config_validation ... ok  
+# test_list_shows_every_dependency_and_where_it_comes_from ... ok
 # test_is_excluded ... ok
 # ✅ 所有测试通过!
 ```
@@ -717,19 +676,10 @@ python run_tests.py
 
 ```bash
 # 运行测试文件
-python tests/test_all.py
+python -m unittest tests.test_download_manager -v
 ```
 
-### 测试覆盖范围
-
-- ✅ **ConfigManager**: 配置加载、验证、依赖项管理、输出目录优先级
-- ✅ **DownloadManager**: URL解析、初始化、`GITHUB_TOKEN` 认证、本地包
-- ✅ **ExtractManager**: 格式识别
-- ✅ **InstallManager**: 模式匹配、排除功能、默认安装和自定义规则、安装包命名
-- ✅ **manifest**: 清单生成、契约测试、历史哈希、完整打包流程
-- ✅ **package_cfg.json**: 固定的依赖版本和下载地址
-
-各测试文件的说明见 [tests/README.md](tests/README.md)。
+测试的约定见 [tests/README.md](tests/README.md)。
 
 ## 常见问题
 
@@ -777,27 +727,28 @@ A: 在`package_cfg.json`的`dependencies`中添加新的插件配置。对于简
 A: 确认配置文件放在正确的`custom_config`目录结构中，并且文件名和路径正确。
 
 ### Q: GitHub Actions构建失败？
-A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。日志里有“契约测试失败”时，按列出的条目改归档内容，常见原因是新增文件没有在 `ROLE_RULES` 里定归属。
+A: 检查`package_cfg.json`中的版本号是否存在，网络访问是否正常，依赖项是否正确安装。日志里有“契约测试失败”时，按列出的条目改归档内容，常见原因是入口文件缺失或托管目录里的文件归属不对。
 
 ### Q: 排除模式不生效怎么办？
 A: 
 1. 使用`--log-level DEBUG`查看排除过程详细信息
 2. 确认排除模式语法正确，对照[模式表](#exclude_files-排除模式)，使用正斜杠`/`作为路径分隔符
-3. 注意大小写：Windows 上不区分，macOS 和 Linux 上区分
+3. 注意大小写：模式在所有平台上都区分大小写
 4. 确认排除的是相对于`from`目录的相对路径
 5. 检查是否同时被`filter`包含和`exclude`排除（exclude优先）
-6. 依赖项有`custom_install_rules`时，`exclude_files`不生效，要写进规则的`exclude`
+6. 依赖项有`custom_install_rules`时不能写`exclude_files`（加载会报错），排除要写进规则的`exclude`
 
 #### 排除模式语法示例：
 ```json
 "exclude": [
-  "*.md",           // ✅ 正确：排除所有.md文件
-  "*.MD",           // ⚠️  注意：Windows 上同 *.md；macOS 和 Linux 上只排除.MD文件
-  "LICENSE*",       // ✅ 正确：排除以LICENSE开头的文件
-  "**/.git*",       // ✅ 正确：排除任意深度下文件名以.git开头的文件，如.gitignore
-  "test/**",        // ✅ 正确：排除任意一级名为test的目录
-  "**/test/**",     // ❌ 错误：只比较文件名，匹配不到任何文件，应写 "test/**"
-  "docs/**/*.md"    // ❌ 错误：按子串比较 "docs" 和 "*.md"，匹配不到；可用 "*.md" 加规则的 from 限定目录
+  "*.md",           // ✅ 任意深度的 .md 文件
+  "*.MD",           // ⚠️  区分大小写：只排除 .MD 文件
+  "LICENSE*",       // ✅ 任意深度、文件名以 LICENSE 开头的文件
+  ".git*",          // ✅ 任意深度、文件名以 .git 开头的文件，如 .gitignore
+  "test/**",        // ✅ 内容根下 test 目录里的全部文件
+  "**/test/**",     // ✅ 任意一级名为 test 的目录
+  "docs/**/*.md",   // ✅ 内容根下 docs 目录里任意深度的 .md 文件
+  "test/"           // ❌ 不支持以 / 结尾，加载配置时报错，应写 "test/**"
 ]
 ```
 
