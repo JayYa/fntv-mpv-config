@@ -3,11 +3,11 @@
 测试自定义安装规则和默认安装功能
 """
 import json
-import unittest
-import tempfile
 import shutil
-from pathlib import Path
 import sys
+import tempfile
+import unittest
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
