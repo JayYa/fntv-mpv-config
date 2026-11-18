@@ -173,6 +173,16 @@ class TestLoadPackageConfig(unittest.TestCase):
         self.assertEqual(config.output_dir, self.tmp.resolve() / ".." / "out")
         self.assertEqual((config.github_proxy, config.enable_proxy), ("https://ghfast.top", True))
 
+    def test_project_dir_is_the_name_under_the_output_dir(self):
+        config = self.load()
+
+        self.assertEqual(config.project_dir, self.tmp.resolve() / "out" / "fntv-mpv")
+
+    def test_name_must_be_one_directory_level(self):
+        for bad in [".", "..", "a/b", "../x", "a\\b"]:
+            with self.subTest(name=bad):
+                self.assertRejected("单独一级目录名", name=bad)
+
     def test_proxy_settings_may_be_empty_or_omitted(self):
         settings = {"output_dir": "out", "temp_dir": "temp", "custom_config_dir": "custom_config"}
 

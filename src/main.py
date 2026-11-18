@@ -4,11 +4,9 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from .build import BuildFailed, BuildScope, build
-from .dependency_source import remove_temp_dir
-from .install_manager import InstallManager
+from .build import BuildFailed, BuildScope, build, clean
 from .log_setup import setup_logging
-from .package_archive import remove_package_archives, validate_package_timestamp
+from .package_archive import validate_package_timestamp
 from .package_config import ConfigError, DependencySpec, GithubRelease, LocalDir, PackageConfig, load_package_config
 from .previous_manifest import PreviousManifest, PreviousManifestFile, PreviousRelease
 from .release import write_build_result
@@ -21,27 +19,6 @@ def list_dependencies(config: PackageConfig):
     for name, entry in config.dependencies.items():
         disabled_note = "" if entry.enabled else "，已停用"
         logger.info(f"  - {name}: {entry.display_name} {entry.version}（{_describe(entry)}{disabled_note}）")
-
-
-def clean_directories(config: PackageConfig, clean_temp: bool, clean_output: bool):
-    """
-    Args:
-        clean_temp: 删掉整个临时目录
-        clean_output: 删掉 project 目录、输出目录里的安装包和清单资产；输出目录里的其它东西不动
-
-    Raises:
-        OSError: 删除失败
-    """
-    if clean_temp:
-        remove_temp_dir(config.temp_dir)
-
-    if clean_output:
-        if not config.output_dir.exists():
-            logger.info(f"输出目录不存在: {config.output_dir}")
-            return
-        InstallManager(config.output_dir, config.project_name).remove_project_dir()
-        for path in remove_package_archives(config.output_dir):
-            logger.info(f"已删除文件: {path.name}")
 
 
 def _describe(entry: DependencySpec) -> str:
@@ -216,8 +193,7 @@ def main(argv: Optional[List[str]] = None):
             list_dependencies(config)
         elif args.clean:
             try:
-                clean_directories(config, clean_temp=args.clean in ('temp', 'all'),
-                                  clean_output=args.clean in ('output', 'all'))
+                clean(config, temp=args.clean in ('temp', 'all'), output=args.clean in ('output', 'all'))
             except OSError as e:
                 print(f"清理失败: {e}")
                 sys.exit(1)

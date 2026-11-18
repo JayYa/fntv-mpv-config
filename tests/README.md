@@ -37,7 +37,7 @@ tests/
   - `enabled` 默认 `true`；停用的依赖（含 mpv）留在 `dependencies` 里，不进依赖布局，入口文件不再必需；停用的依赖照样校验，`enabled` 不是布尔值也报错
   - 不认识的字段、`url` 和 `local_path` 都写或都不写、`url` 不是 GitHub Release、缺 `filename_pattern` / `format` / `name` / `version`、本地来源写了 `format`、`format` 不是支持的压缩格式、本地压缩包的扩展名不认识都报 `ConfigError`
   - 顶层和 `config` 块的多余字段、缺必填项、`enable_proxy` 不是布尔值、文件不存在或不是 JSON 对象都报错；依赖布局的错误也作为 `ConfigError` 抛出
-  - 输出目录优先级：`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`，空环境变量视为未设置
+  - 输出目录优先级：`--output-dir` > `FNTV_MPV_OUTPUT_DIR` > `config.output_dir`，空环境变量视为未设置；project 目录是输出目录下的 `name`，`name` 不是单独一级目录名时报 `ConfigError`
   - 仓库的 `package_cfg.json` 能加载
 
 #### 0b. test_main.py - 命令行测试
@@ -47,7 +47,8 @@ tests/
   - `--previous-release` 和 `--previous-manifest` 只能给一个
 - **TestCommandLine**: 经 `main(argv)` 测
   - `--list` 列出每个依赖的显示名、版本和来源，停用的标"已停用"
-  - 配置不合法时 `--list`、`--clean` 以退出码 1 结束；`--deps` 写了不存在或停用的依赖名也以 1 结束
+  - 配置不合法时 `--list`、`--clean` 以退出码 1 结束（`name` 不是单独一级目录名也一样，不出 traceback）；`--deps` 写了不存在或停用的依赖名也以 1 结束
+  - `--clean output` 删掉 project 目录、安装包和清单资产，输出目录里的其它文件和临时目录不动
   - `--enable` / `--disable` 已删除，传入时是参数错误（退出码 2）
 - **TestBuildCommand**: 经 `main(argv)` 跑本地假依赖的构建
   - `--skip-install` 只取依赖，`--skip-package` 安装但不打包，`--skip-cleanup` 保留临时目录

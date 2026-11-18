@@ -8,9 +8,9 @@ import requests
 
 from .dependency_source import DependencySource, FetchError, remove_temp_dir
 from .download_manager import DownloadManager
-from .install_manager import InstallError, InstallManager
+from .install_manager import InstallError, InstallManager, remove_project_dir
 from .manifest import KnownHashes, ManifestError
-from .package_archive import ContractTestFailed, PackageArchive, build_package_archive
+from .package_archive import ContractTestFailed, PackageArchive, build_package_archive, remove_package_archives
 from .package_config import DependencySpec, PackageConfig
 from .previous_manifest import PreviousManifest, PreviousManifestError, load_known_hashes
 from .release import BuildResult, Dependency
@@ -58,7 +58,7 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
 
     downloader = DownloadManager(config.github_proxy, config.enable_proxy, session=session)
     source = DependencySource(config.temp_dir, offline=offline, downloader=downloader)
-    installer = InstallManager(config.output_dir, config.project_name)
+    installer = InstallManager(config.project_dir)
 
     known = _known_hashes(history_path, previous, downloader) if scope is BuildScope.PACKAGE else None
 
@@ -78,13 +78,13 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
             raise BuildFailed([f"处理依赖项 {name} 失败: {e}"]) from e
 
     result = BuildResult(
-        output_dir=installer.base_output_dir.resolve(),
-        project_dir=installer.output_dir.resolve(),
+        output_dir=config.output_dir.resolve(),
+        project_dir=config.project_dir.resolve(),
         processed_dependencies=_release_dependencies(targets),
         disabled_dependencies=_release_dependencies(config.disabled_dependencies),
     )
     if scope is BuildScope.PACKAGE:
-        result = replace(result, package=_package(config, installer, known, package_timestamp))
+        result = replace(result, package=_package(config, known, package_timestamp))
 
     if not keep_temp:
         try:
@@ -92,6 +92,24 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
         except OSError as e:
             logger.warning(f"清理临时目录失败: {e}")
     return result
+
+
+def clean(config: PackageConfig, *, temp: bool, output: bool):
+    """
+    output 只删 project 目录、安装包和清单资产，输出目录里的其它东西不动
+
+    Raises:
+        OSError: 删除失败
+    """
+    if temp:
+        remove_temp_dir(config.temp_dir)
+    if output:
+        if not config.output_dir.exists():
+            logger.info(f"输出目录不存在: {config.output_dir}")
+            return
+        remove_project_dir(config.project_dir)
+        for path in remove_package_archives(config.output_dir):
+            logger.info(f"已删除文件: {path.name}")
 
 
 def _target_dependencies(config: PackageConfig, names: Optional[Sequence[str]],
@@ -127,11 +145,10 @@ def _known_hashes(history_path: Optional[Path], previous: Optional[PreviousManif
         raise BuildFailed(e.errors) from e
 
 
-def _package(config: PackageConfig, installer: InstallManager, known: KnownHashes,
-             timestamp: Optional[str]) -> PackageArchive:
+def _package(config: PackageConfig, known: KnownHashes, timestamp: Optional[str]) -> PackageArchive:
     components = {name: entry.version for name, entry in config.enabled_dependencies.items()}
     try:
-        package = build_package_archive(installer.output_dir, components, known,
+        package = build_package_archive(config.project_dir, components, known,
                                         config.archive_layout, timestamp=timestamp)
     except ContractTestFailed as e:
         raise BuildFailed([f"契约测试失败: {error}" for error in e.errors]) from e
