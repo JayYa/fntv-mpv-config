@@ -77,7 +77,7 @@ _Avoid_: 版本号, tag（单独使用时）
 _Avoid_: 文件列表, 索引
 
 **归属（role）**:
-清单里一个文件由谁负责：托管（managed，客户端整体替换）、配置（config，用户可改）、种子（seed，只在首次放置）。
+清单里一个文件由谁负责：托管（managed，客户端整体替换）、配置（config，用户可改）、种子（seed，只在首次放置）。由文件的来源决定：依赖装进来的文件都是托管；custom_config 里的文件默认是配置，例外在打包配置里声明。托管目录里只能有托管文件。
 _Avoid_: 类型, 分类
 
 **已知哈希（known hashes）**:
@@ -85,7 +85,7 @@ _Avoid_: 类型, 分类
 _Avoid_: 历史版本
 
 **历史哈希（manifest history）**:
-提交在仓库里的 `manifest-history.json`：本 fork 早于清单的历次安装包里，每个 portable_config 路径出现过的哈希；与上一版清单合并后得到已知哈希。
+提交在仓库里的 `manifest-history.json`：本 fork 早于清单的历次安装包里，每个 portable_config 路径出现过的哈希及其归属；与上一版清单合并后得到已知哈希。早于清单的安装包不会再有，所以它是冻结的。
 _Avoid_: 历史清单, 哈希历史
 
 **上一版清单（previous manifest）**:

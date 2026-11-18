@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.dependency_layout import LayoutError, load_layout
+from src.package_config import load_package_config
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -96,7 +97,7 @@ class TestLoadLayout(unittest.TestCase):
         self.assertEqual(sorted(f.portable_config_path for f in layout.base_config),
                          ["fntv/defaults.conf", "mpv.conf"])
         self.assertEqual([(src.read_text(encoding="utf-8"), dest)
-                          for src, dest in layout.placements["uosc"].custom_config],
+                          for src, dest, _role in layout.placements["uosc"].custom_config],
                          [("uosc/script-opts/uosc.conf", "script-opts/uosc.conf")])
 
     def test_two_configs_for_the_same_path_are_rejected(self):
@@ -104,6 +105,63 @@ class TestLoadLayout(unittest.TestCase):
 
         with self.assertRaisesRegex(LayoutError, "script-opts/uosc.conf"):
             self.load({"uosc": {"install_to": "portable_config/scripts/uosc"}})
+
+    def test_custom_config_files_are_config_and_dependency_files_are_managed(self):
+        self.write_custom(["base/mpv.conf", "uosc/script-opts/uosc.conf"])
+
+        layout = self.load({"uosc": {"install_to": "portable_config/scripts/uosc"}})
+
+        self.assertEqual(layout.role_of("mpv.conf"), "config")
+        self.assertEqual(layout.role_of("script-opts/uosc.conf"), "config")
+        self.assertEqual(layout.role_of("scripts/uosc/main.lua"), "managed")
+        self.assertEqual(layout.role_of("fonts/uosc_icons.otf"), "managed")
+
+    def test_custom_config_roles_other_than_config_are_declared_by_pattern(self):
+        self.write_custom(["base/mpv.conf", "base/shaders/a.glsl", "base/shaders/b.glsl",
+                           "uosc_danmaku/danmaku-history.json"])
+
+        layout = load_layout(
+            {"uosc_danmaku": {"install_to": "portable_config/scripts/uosc_danmaku",
+                              "config_roles": {"danmaku-history.json": "seed"}}},
+            self.custom, base_config_roles={"shaders/**": "managed"})
+
+        self.assertEqual(layout.role_of("mpv.conf"), "config")
+        self.assertEqual(layout.role_of("shaders/a.glsl"), "managed")
+        self.assertEqual(layout.role_of("shaders/b.glsl"), "managed")
+        self.assertEqual(layout.role_of("danmaku-history.json"), "seed")
+
+    def test_declared_roles_must_name_a_role_and_match_a_file(self):
+        self.write_custom(["base/mpv.conf", "uosc/script-opts/uosc.conf"])
+        uosc = {"install_to": "portable_config/scripts/uosc"}
+        bad = [
+            ({"uosc": {**uosc, "config_roles": {"script-opts/*.conf": "config"}}}, {}, "uosc"),
+            ({"uosc": {**uosc, "config_roles": {"script-opts/*.conf": "user"}}}, {}, "uosc"),
+            ({"uosc": {**uosc, "config_roles": {"nothing.conf": "seed"}}}, {}, "nothing.conf"),
+            ({"uosc": {**uosc, "config_roles": ["script-opts/*.conf"]}}, {}, "uosc"),
+            ({"uosc": uosc}, {"mpv.conf/": "managed"}, "base"),
+            ({"uosc": uosc}, {"shaders/**": "managed"}, "shaders"),
+        ]
+        for dependencies, base_roles, fragment in bad:
+            with self.subTest(dependencies=dependencies, base_roles=base_roles):
+                with self.assertRaisesRegex(LayoutError, fragment):
+                    load_layout(dependencies, self.custom, base_config_roles=base_roles)
+
+    def test_config_inside_a_managed_dir_must_be_declared_managed(self):
+        self.write_custom(["uosc/scripts/uosc/user.conf", "base/scripts/uosc/extra.conf"])
+        uosc = {"install_to": "portable_config/scripts/uosc", "entry": "portable_config/scripts/uosc/main.lua",
+                "managed_dir": "portable_config/scripts/uosc"}
+
+        with self.assertRaisesRegex(LayoutError, "scripts/uosc/user.conf"):
+            load_layout({"uosc": uosc}, self.custom, base_config_roles={"extra.conf": "managed"})
+        with self.assertRaisesRegex(LayoutError, "scripts/uosc/extra.conf"):
+            load_layout({"uosc": {**uosc, "config_roles": {"user.conf": "managed"}}}, self.custom)
+        with self.assertRaisesRegex(LayoutError, "scripts/uosc/user.conf"):
+            load_layout({"uosc": {**uosc, "config_roles": {"user.conf": "seed"}}}, self.custom,
+                        base_config_roles={"extra.conf": "managed"})
+
+        layout = load_layout({"uosc": {**uosc, "config_roles": {"user.conf": "managed"}}}, self.custom,
+                             base_config_roles={"extra.conf": "managed"})
+        self.assertEqual(layout.role_of("scripts/uosc/user.conf"), "managed")
 
     def test_no_dependency_may_be_named_after_the_base_config(self):
         with self.assertRaisesRegex(LayoutError, "base"):
@@ -125,6 +183,27 @@ class TestLoadLayout(unittest.TestCase):
         ])
         self.assertEqual(sorted(layout.manifest_managed_dirs),
                          ["scripts/smart_skip", "scripts/uosc", "scripts/uosc_danmaku"])
+
+    def test_repository_config_keeps_the_roles_the_client_already_knows(self):
+        layout = load_package_config(PROJECT_ROOT / "package_cfg.json").archive_layout
+
+        self.assertEqual({path: layout.role_of(path) for path in [
+            "mpv.conf", "input.conf", "fntv/defaults.conf", "shaders/Anime4K_Clamp_Highlights.glsl",
+            "script-opts/uosc.conf", "script-opts/thumbfast.conf", "script-opts/uosc_danmaku.conf",
+            "danmaku-history.json", "scripts/uosc/main.lua", "scripts/thumbfast.lua", "fonts/uosc_icons.otf",
+        ]}, {
+            "mpv.conf": "config",
+            "input.conf": "config",
+            "fntv/defaults.conf": "managed",
+            "shaders/Anime4K_Clamp_Highlights.glsl": "managed",
+            "script-opts/uosc.conf": "config",
+            "script-opts/thumbfast.conf": "config",
+            "script-opts/uosc_danmaku.conf": "config",
+            "danmaku-history.json": "seed",
+            "scripts/uosc/main.lua": "managed",
+            "scripts/thumbfast.lua": "managed",
+            "fonts/uosc_icons.otf": "managed",
+        })
 
 
 if __name__ == "__main__":

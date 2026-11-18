@@ -108,7 +108,8 @@ def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None
 
     dependencies = {name: _dependency(name, dep, base_dir) for name, dep in raw_dependencies.items()}
     try:
-        layout = load_layout(raw_dependencies, base_dir / _text("config", settings, "custom_config_dir"))
+        layout = load_layout(raw_dependencies, base_dir / _text("config", settings, "custom_config_dir"),
+                             base_config_roles=data.get("base_config_roles", {}))
     except LayoutError as e:
         raise ConfigError(str(e)) from e
     layout = replace(layout, placements={name: placement for name, placement in layout.placements.items()
@@ -128,7 +129,7 @@ def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None
     )
 
 
-_TOP_LEVEL_KEYS = {"name", "version", "description", "config", "dependencies"}
+_TOP_LEVEL_KEYS = {"name", "version", "description", "config", "base_config_roles", "dependencies"}
 _SETTINGS_KEYS = {"output_dir", "temp_dir", "custom_config_dir", "github_proxy", "enable_proxy"}
 
 

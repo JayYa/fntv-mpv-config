@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, List, Mapping, NamedTuple, Optional, Tuple
 
@@ -7,7 +8,9 @@ from .manifest import DEFAULTS_CONF, PORTABLE_CONFIG
 
 BASE_REQUIRED_PATHS = (f"{PORTABLE_CONFIG}/mpv.conf", f"{PORTABLE_CONFIG}/{DEFAULTS_CONF}")
 
-LAYOUT_KEYS = frozenset({"install_to", "custom_install_rules", "exclude_files", "entry", "managed_dir"})
+LAYOUT_KEYS = frozenset({"install_to", "custom_install_rules", "exclude_files", "entry", "managed_dir",
+                         "config_roles"})
+DECLARED_ROLES = ("managed", "seed")
 
 
 class LayoutError(Exception):
@@ -19,6 +22,7 @@ BASE_CONFIG_DIR = "base"
 class ConfigFile(NamedTuple):
     source: Path
     portable_config_path: str
+    role: str
 
 
 @dataclass(frozen=True)
@@ -54,39 +58,79 @@ class DependencyLayout:
         return [p.managed_dir[len(prefix):] for p in self.placements.values()
                 if p.managed_dir is not None]
 
+    @cached_property
+    def _config_roles(self) -> Mapping[str, str]:
+        config_files = self.base_config + tuple(f for p in self.placements.values() for f in p.custom_config)
+        return {f.portable_config_path: f.role for f in config_files}
 
-def load_layout(dependencies: Mapping[str, Mapping[str, Any]], custom_config_dir: Path) -> DependencyLayout:
+    def role_of(self, portable_config_path: str) -> str:
+        """custom_config 里的文件按它声明的归属，其余都是依赖装进来的，归托管"""
+        return self._config_roles.get(portable_config_path, "managed")
+
+
+def load_layout(dependencies: Mapping[str, Mapping[str, Any]], custom_config_dir: Path,
+                base_config_roles: Optional[Mapping[str, str]] = None) -> DependencyLayout:
     """
     从 package_cfg.json 的 dependencies 读出依赖布局；只看安装相关的字段，其它字段由打包配置校验
 
     custom_config_dir/base 下的文件是基础配置，custom_config_dir/<依赖名> 下的跟着该依赖装，
-    都按相对路径装进 portable_config。
+    都按相对路径装进 portable_config。它们默认归属 config；base_config_roles 和各依赖的
+    config_roles 按模式声明例外。
 
     Raises:
-        LayoutError: 有依赖的布局不合法，或两份配置要装到同一个路径
+        LayoutError: 有依赖的布局不合法，两份配置要装到同一个路径，或声明的归属不合法
     """
     custom_config_dir = Path(custom_config_dir)
     if BASE_CONFIG_DIR in dependencies:
         raise LayoutError(f"依赖不能叫 {BASE_CONFIG_DIR}：custom_config/{BASE_CONFIG_DIR} 是基础配置")
-    base_config = _config_files(custom_config_dir / BASE_CONFIG_DIR)
+    base_config = _config_files(custom_config_dir / BASE_CONFIG_DIR, base_config_roles or {},
+                                "base_config_roles")
     owners = {f.portable_config_path: f"custom_config/{BASE_CONFIG_DIR}" for f in base_config}
     placements = {}
     for name, config in dependencies.items():
-        custom_config = _config_files(custom_config_dir / name)
+        custom_config = _config_files(custom_config_dir / name, config.get("config_roles", {}),
+                                      f"依赖 {name} 的 config_roles")
         for f in custom_config:
             if f.portable_config_path in owners:
                 raise LayoutError(f"{owners[f.portable_config_path]} 和 custom_config/{name} 都要装 "
                                   f"{PORTABLE_CONFIG}/{f.portable_config_path}")
             owners[f.portable_config_path] = f"custom_config/{name}"
         placements[name] = _placement(name, config, custom_config)
-    return DependencyLayout(placements, base_config)
+    layout = DependencyLayout(placements, base_config)
+    _check_managed_dirs_hold_only_managed_files(layout, owners)
+    return layout
 
 
-def _config_files(config_dir: Path) -> Tuple[ConfigFile, ...]:
-    if not config_dir.is_dir():
-        return ()
-    return tuple(ConfigFile(path, path.relative_to(config_dir).as_posix())
-                 for path in sorted(config_dir.rglob("*")) if path.is_file())
+def _check_managed_dirs_hold_only_managed_files(layout: DependencyLayout, owners: Mapping[str, str]):
+    for managed_dir in layout.manifest_managed_dirs:
+        for path, owner in owners.items():
+            role = layout.role_of(path)
+            if role != "managed" and path.startswith(managed_dir + "/"):
+                raise LayoutError(f"{owner} 的 {path} 装进托管目录 {managed_dir}，客户端会整体替换它，"
+                                  f"归属必须声明为 managed，现在是 {role}")
+
+
+def _config_files(config_dir: Path, roles: Any, where: str) -> Tuple[ConfigFile, ...]:
+    if not isinstance(roles, Mapping):
+        raise LayoutError(f"{where} 必须是对象，键为模式、值为 {' 或 '.join(DECLARED_ROLES)}: {roles!r}")
+    matchers = []
+    for pattern, role in roles.items():
+        if role not in DECLARED_ROLES:
+            raise LayoutError(f"{where} 里 {pattern!r} 的归属只能是 {' 或 '.join(DECLARED_ROLES)}"
+                              f"（不写就是 config）: {role!r}")
+        matchers.append((pattern, role, pattern_matcher(_pattern(where, pattern))))
+    paths = ([path.relative_to(config_dir).as_posix() for path in sorted(config_dir.rglob("*")) if path.is_file()]
+             if config_dir.is_dir() else [])
+    files = []
+    for rel in paths:
+        declared = {role for _, role, matches in matchers if matches(rel)}
+        if len(declared) > 1:
+            raise LayoutError(f"{where} 给 {rel} 声明了不同的归属: {sorted(declared)}")
+        files.append(ConfigFile(config_dir / rel, rel, declared.pop() if declared else "config"))
+    for pattern, _role, matches in matchers:
+        if not any(matches(rel) for rel in paths):
+            raise LayoutError(f"{where} 的模式 {pattern!r} 在 {config_dir} 里一个文件也没命中")
+    return tuple(files)
 
 
 def _placement(name: str, config: Mapping[str, Any],
@@ -147,17 +191,21 @@ def _install_rule(name: str, rule: Any) -> InstallRule:
 
 
 def _patterns(name: str, field: str, value: Any) -> Tuple[str, ...]:
+    where = f"依赖 {name} 的 {field}"
     if not isinstance(value, list) or not all(isinstance(p, str) and p for p in value):
-        raise LayoutError(f"依赖 {name} 的 {field} 必须是非空字符串的列表: {value!r}")
-    patterns = tuple(p.replace("\\", "/") for p in value)
-    for p in patterns:
-        if p.startswith("!") or p.endswith("/") or p.startswith("/"):
-            raise LayoutError(f"依赖 {name} 的 {field} 不支持以 ! 或 / 开头、以 / 结尾的模式: {p!r}")
-        try:
-            pattern_matcher(p)
-        except re.error as e:
-            raise LayoutError(f"依赖 {name} 的 {field} 有写错的模式 {p!r}: {e}") from e
-    return patterns
+        raise LayoutError(f"{where} 必须是非空字符串的列表: {value!r}")
+    return tuple(_pattern(where, p) for p in value)
+
+
+def _pattern(where: str, value: str) -> str:
+    pattern = value.replace("\\", "/")
+    if pattern.startswith("!") or pattern.endswith("/") or pattern.startswith("/"):
+        raise LayoutError(f"{where} 不支持以 ! 或 / 开头、以 / 结尾的模式: {pattern!r}")
+    try:
+        pattern_matcher(pattern)
+    except re.error as e:
+        raise LayoutError(f"{where} 有写错的模式 {pattern!r}: {e}") from e
+    return pattern
 
 
 def _archive_path(name: str, field: str, value: str) -> str:

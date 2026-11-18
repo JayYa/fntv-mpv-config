@@ -65,7 +65,7 @@ class TestLoadKnownHashes(unittest.TestCase):
 
     def test_a_manifest_file_is_merged_with_the_history(self):
         history = self.write("history.json", json.dumps(
-            {"archives": ["v1"], "files": {"mpv.conf": [SHA256_ABC]}}).encode())
+            {"archives": ["v1"], "files": {"mpv.conf": {"role": "config", "hashes": [SHA256_ABC]}}}).encode())
         previous = self.write("previous.json", manifest_bytes(
             files=[{"path": "mpv.conf", "sha256": SHA256_DEF, "role": "config",
                     "knownHashes": [SHA256_DEF, SHA256_GHI]}],
@@ -101,7 +101,7 @@ class TestLoadKnownHashes(unittest.TestCase):
 
         committed = json.loads((PROJECT_ROOT / "manifest-history.json").read_text(encoding="utf-8"))
         self.assertEqual(known.of("scripts/uosc/main.lua"),
-                         set(committed["files"]["scripts/uosc/main.lua"]))
+                         set(committed["files"]["scripts/uosc/main.lua"]["hashes"]))
         self.assertEqual(known.previously_obsolete, set())
 
 

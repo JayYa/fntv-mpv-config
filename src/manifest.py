@@ -4,35 +4,24 @@ MPV 归档清单 fntv-manifest.json
 清单放在安装包根目录，列出 portable_config 下每个文件的 sha256 和归属（role），
 客户端靠它按 conffile 方式同步用户配置。格式见 JayYa/fntv-electron#219。
 """
-import fnmatch
 import hashlib
 import json
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, FrozenSet, Iterable, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, Iterator, List, Mapping, Optional, Set, Tuple
+
+if TYPE_CHECKING:
+    from .dependency_layout import DependencyLayout
 
 MANIFEST_NAME = "fntv-manifest.json"
 DEFAULT_HISTORY_PATH = Path(__file__).parent.parent / "manifest-history.json"
-HISTORY_DESCRIPTION = ("本 fork 发过的 MPV 归档中每个 portable_config 路径出现过的 sha256；"
-                       "由 build_manifest_history.py 生成，只增不减")
 FORMAT_VERSION = 1
 PORTABLE_CONFIG = "portable_config"
 DEFAULTS_CONF = "fntv/defaults.conf"
 
 ROLES = ("managed", "config", "seed")
 ROLES_KEPT_BY_CLIENT = ("config", "seed")
-
-# 归属规则：按顺序匹配相对 portable_config 的正斜杠路径，先命中的生效
-ROLE_RULES = [
-    ("scripts/*", "managed"),
-    ("fonts/*", "managed"),
-    ("shaders/*", "managed"),
-    (DEFAULTS_CONF, "managed"),
-    ("mpv.conf", "config"),
-    ("input.conf", "config"),
-    ("danmaku-history.json", "seed"),
-]
 
 # 归档提供给客户端的能力：能力名 -> 版本
 PROVIDES = {
@@ -204,17 +193,6 @@ def write_manifest(archive_root: Path, manifest: Manifest) -> Path:
     return path
 
 
-def role_of(path: str) -> Optional[str]:
-    """返回相对 portable_config 的路径的归属，没有规则命中时返回 None"""
-    parts = path.split("/")
-    if len(parts) == 2 and parts[0] == "script-opts" and parts[1].endswith(".conf"):
-        return "config"
-    for pattern, role in ROLE_RULES:
-        if fnmatch.fnmatchcase(path, pattern):
-            return role
-    return None
-
-
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -237,17 +215,15 @@ def portable_config_entries(z: zipfile.ZipFile) -> Iterator[Tuple[str, bytes]]:
 
 
 @dataclass(frozen=True)
+class HistoryFile:
+    role: str
+    hashes: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ManifestHistory:
     archives: Tuple[str, ...] = ()
-    files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
-
-    def to_bytes(self) -> bytes:
-        data = {
-            "description": HISTORY_DESCRIPTION,
-            "archives": list(self.archives),
-            "files": {path: list(hashes) for path, hashes in self.files.items()},
-        }
-        return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    files: Mapping[str, HistoryFile] = field(default_factory=dict)
 
 
 def load_history(path: Path) -> ManifestHistory:
@@ -266,88 +242,67 @@ def load_history(path: Path) -> ManifestHistory:
     files = raw.get("files") if isinstance(raw, dict) else None
     if not _is_str_list(archives):
         errors.add("archives 应为字符串数组")
-    if not (isinstance(files, dict) and all(_is_str_list(h) for h in files.values())):
-        errors.add("files 应为对象，值为 sha256 数组")
+    if not (isinstance(files, dict) and all(
+            isinstance(entry, dict) and entry.get("role") in ROLES and _is_str_list(entry.get("hashes"))
+            for entry in files.values())):
+        errors.add(f"files 应为对象，值为 {{\"role\": {'/'.join(ROLES)}, \"hashes\": sha256 数组}}")
     errors.raise_if_any()
-    return ManifestHistory(tuple(archives), {p: tuple(h) for p, h in files.items()})
-
-
-def history_from_archives(archives: List[Tuple[str, Path]]) -> ManifestHistory:
-    """
-    从历史安装包算出每个 portable_config 路径出现过的全部哈希（排序去重）
-
-    Args:
-        archives: (Release tag, zip 路径) 列表，按发布顺序
-    """
-    files: Dict[str, Set[str]] = {}
-    for _tag, zip_path in archives:
-        with zipfile.ZipFile(zip_path) as z:
-            for rel, data in portable_config_entries(z):
-                files.setdefault(rel, set()).add(sha256_bytes(data))
-    return ManifestHistory(
-        tuple(tag for tag, _ in archives),
-        {path: tuple(sorted(hashes)) for path, hashes in sorted(files.items())},
-    )
+    return ManifestHistory(tuple(archives), {
+        p: HistoryFile(entry["role"], tuple(entry["hashes"])) for p, entry in files.items()})
 
 
 @dataclass(frozen=True)
 class KnownHashes:
     hashes: Mapping[str, FrozenSet[str]] = field(default_factory=dict)
+    roles: Mapping[str, str] = field(default_factory=dict)
     previously_obsolete: FrozenSet[str] = frozenset()
 
     @classmethod
     def merge(cls, history: Optional[ManifestHistory] = None,
               previous_manifest: Optional[Manifest] = None) -> "KnownHashes":
         known: Dict[str, Set[str]] = {}
+        roles: Dict[str, str] = {}
         previously_obsolete: Set[str] = set()
         if history:
-            for path, hashes in history.files.items():
-                known.setdefault(path, set()).update(hashes)
+            for path, entry in history.files.items():
+                known.setdefault(path, set()).update(entry.hashes)
+                roles[path] = entry.role
         if previous_manifest:
             for f in previous_manifest.files:
                 known.setdefault(f.path, set()).update(f.known_hashes)
                 known[f.path].add(f.sha256)
+                roles[f.path] = f.role
             for o in previous_manifest.obsolete:
                 known.setdefault(o.path, set()).update(o.known_hashes)
                 previously_obsolete.add(o.path)
-        return cls({path: frozenset(h) for path, h in known.items()}, frozenset(previously_obsolete))
+        return cls({path: frozenset(h) for path, h in known.items()}, roles, frozenset(previously_obsolete))
 
     def of(self, path: str) -> Set[str]:
         return set(self.hashes.get(path, ()))
 
     def is_obsolete_candidate(self, path: str) -> bool:
-        return path in self.previously_obsolete or role_of(path) not in ROLES_KEPT_BY_CLIENT
+        return path in self.previously_obsolete or self.roles.get(path) not in ROLES_KEPT_BY_CLIENT
 
 
 def build_manifest(portable_config_dir: Path, archive_version: str,
-                   components: Dict[str, str], known: Optional[KnownHashes] = None,
-                   managed_dirs: Sequence[str] = ()) -> Manifest:
+                   components: Dict[str, str], layout: "DependencyLayout",
+                   known: Optional[KnownHashes] = None) -> Manifest:
     """
     扫描 portable_config 目录生成清单
 
     Args:
+        layout: 依赖布局，给出每个文件的归属和清单的 managedDirs
         known: 已知哈希，并进 knownHashes 和 obsolete；None 时视为没有历史
-        managed_dirs: 清单的 managedDirs，客户端整体替换的目录（相对 portable_config）
-
-    Raises:
-        ManifestError: 有文件没有归属
     """
     known = known or KnownHashes()
     portable_config_dir = Path(portable_config_dir)
     files: List[ManifestFile] = []
-    unclassified: List[str] = []
     for item in sorted(portable_config_dir.rglob("*")):
         if not item.is_file():
             continue
         rel = item.relative_to(portable_config_dir).as_posix()
-        role = role_of(rel)
-        if role is None:
-            unclassified.append(rel)
-            continue
         digest = sha256_file(item)
-        files.append(ManifestFile(rel, digest, role, tuple(sorted(known.of(rel) | {digest}))))
-    if unclassified:
-        raise ManifestError([f"以下文件没有归属规则: {', '.join(unclassified)}"])
+        files.append(ManifestFile(rel, digest, layout.role_of(rel), tuple(sorted(known.of(rel) | {digest}))))
 
     files.sort(key=lambda f: f.path)
     current = {f.path for f in files}
@@ -357,4 +312,4 @@ def build_manifest(portable_config_dir: Path, archive_version: str,
         if path not in current and known.is_obsolete_candidate(path)
     )
     return Manifest(archive_version=archive_version, components=dict(components),
-                    managed_dirs=tuple(managed_dirs), files=tuple(files), obsolete=obsolete)
+                    managed_dirs=tuple(layout.manifest_managed_dirs), files=tuple(files), obsolete=obsolete)

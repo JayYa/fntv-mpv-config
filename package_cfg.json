@@ -9,6 +9,10 @@
         "github_proxy": "https://ghfast.top",
         "enable_proxy": false
     },
+    "base_config_roles": {
+        "fntv/defaults.conf": "managed",
+        "shaders/**": "managed"
+    },
     "dependencies": {
         "mpv": {
             "name": "mpv播放器",
@@ -52,6 +56,9 @@
             "install_to": "portable_config/scripts/uosc_danmaku",
             "entry": "portable_config/scripts/uosc_danmaku/main.lua",
             "managed_dir": "portable_config/scripts/uosc_danmaku",
+            "config_roles": {
+                "danmaku-history.json": "seed"
+            },
             "exclude_files": [
                 "*.md",
                 "LICENSE*"
