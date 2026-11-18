@@ -54,7 +54,11 @@ fntv-mpv-config/
 ├── .github/workflows/     # GitHub Actions工作流
 ├── package_cfg.json       # 主配置文件
 ├── manifest-history.json  # 历史归档的文件哈希
-├── requirements.txt       # Python依赖
+├── .python-version        # 本地和 CI 共用的 Python 版本
+├── requirements.in        # 直接依赖（手改这里）
+├── requirements.txt       # 由 requirements.in 生成的锁文件，带哈希
+├── requirements-dev.in    # 开发依赖（手改这里）
+├── requirements-dev.txt   # 由 requirements-dev.in 生成的锁文件，带哈希
 ├── run.py                 # 运行脚本
 ├── run_tests.py           # 测试运行器
 ├── check_archive.py       # 对打包出的 zip 跑契约测试
@@ -66,7 +70,7 @@ fntv-mpv-config/
 ### 1. 环境准备
 
 #### 系统要求
-- Python 3.11.4 及以上（解压 tar 用到 `filter="data"`；CI 用 3.11）
+- Python，版本见 `.python-version`（CI 读同一个文件）；最低 3.11.4（解压 tar 用到 `filter="data"`）
 - 7-Zip（py7zr 解不开 mpv 的 7z 包时用它）
 - 可访问 GitHub。设置 `GITHUB_TOKEN` 或 `GH_TOKEN` 后，GitHub API 请求带认证，不受匿名每小时 60 次的限额
 
@@ -87,9 +91,23 @@ winget install --id 7zip.7zip
 git clone https://github.com/JayYa/fntv-mpv-config.git
 cd fntv-mpv-config
 
-# 安装Python依赖
-pip install -r requirements.txt
+# 建虚拟环境并安装 Python 依赖（uv 会按 .python-version 选 Python）
+uv venv
+uv pip sync requirements.txt
 ```
+
+不用 uv 的话，用 `.python-version` 里的 Python 建 venv，再运行 `pip install --require-hashes -r requirements.txt`。
+
+#### 依赖版本怎么锁
+
+`requirements.txt` 和 `requirements-dev.txt` 是锁文件，列出全部依赖（包括间接依赖）的版本和哈希。CI 和本地都从这两个文件安装，所以装到的版本一样。不要手改它们：改 `.in` 文件，然后重新生成锁文件：
+
+```bash
+uv pip compile requirements.in --universal --generate-hashes --python-version 3.14 -o requirements.txt
+uv pip compile requirements-dev.in --universal --generate-hashes --python-version 3.14 -o requirements-dev.txt
+```
+
+Renovate 升级 `.in` 里的版本时会一起重新生成锁文件，每周还会刷新一次间接依赖。
 
 ### 2. 配置管理
 
@@ -655,7 +673,7 @@ DEBUG - 已复制: temp\uosc\content\scripts\uosc\main.lua -> output\...
 项目包含单元测试，GitHub API 调用用 mock 替换，不需要网络。每个 PR 和推到 `main` 的提交都会在 CI（`.github/workflows/ci.yml`）里跑 `ruff check .` 和全部测试；本地先装开发依赖：
 
 ```bash
-pip install -r requirements-dev.txt
+uv pip sync requirements-dev.txt
 ruff check .
 ```
 

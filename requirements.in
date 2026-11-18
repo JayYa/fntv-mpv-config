@@ -1,0 +1,6 @@
+# 直接依赖。改完后重新生成 requirements.txt：
+#   uv pip compile requirements.in --universal --generate-hashes --python-version 3.14 -o requirements.txt
+requests==2.34.2
+py7zr==1.1.4
+tqdm==4.70.1
+lupa==2.8
