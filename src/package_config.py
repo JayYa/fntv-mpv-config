@@ -106,7 +106,7 @@ def load_package_config(path: Union[str, Path], output_dir: Optional[str] = None
         raise ConfigError(f"配置文件 {path} 必须是 JSON 对象")
     _reject_unknown_keys("配置文件", data, _TOP_LEVEL_KEYS)
     project_name = _text("配置文件", data, "name")
-    if project_name in (".", "..") or Path(project_name).name != project_name:
+    if project_name in (".", "..") or "/" in project_name or "\\" in project_name or Path(project_name).name != project_name:
         raise ConfigError(f"配置文件的 name 是 project 目录名，必须是单独一级目录名: {project_name!r}")
     settings = _mapping("配置文件", data, "config")
     _reject_unknown_keys("config", settings, _SETTINGS_KEYS)

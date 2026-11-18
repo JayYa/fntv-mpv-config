@@ -96,9 +96,7 @@ def build(config: PackageConfig, scope: BuildScope = BuildScope.PACKAGE, *,
 
 def clean(config: PackageConfig, *, temp: bool, output: bool):
     """
-    Args:
-        temp: 删掉整个临时目录
-        output: 删掉 project 目录、输出目录里的安装包和清单资产；输出目录里的其它东西不动
+    output 只删 project 目录、安装包和清单资产，输出目录里的其它东西不动
 
     Raises:
         OSError: 删除失败
