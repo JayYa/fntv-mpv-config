@@ -27,71 +27,50 @@ GitHub: https://github.com/QiaoKes/fntv-mpv-config
 local mp = require('mp')
 local msg = require('mp.msg')
 local opt = require('mp.options')
-local utils = require('mp.utils')
 local mutils = require('./mutils')
-local api = require('./api')
+local skipinfo = require('./skipinfo')
 local options = require('./options')
-local skip_window = require('./skip_window')
+local skip_session = require('./skip_session')
 local menu = require('./menu')
 local opts = options.opts
 
 local LABELS = { intro = "⏭️ 正在跳过片头...", outro = "⏭️ 正在跳过片尾..." }
+local NO_FILE = "没有正在播放的文件"
 
 local current = nil
 
-local function recompute(state)
-    state.windows = skip_window.windows({
+local function media_facts()
+    return {
         duration = mutils.dur(),
-        lens = state.lens,
+        chapters = mutils.get_chapter_list(),
         mode = opts.detect_mode,
-        chapters = mutils.get_chapter_list() or {},
         chapter_opts = opts,
-    })
+    }
 end
 
-local function on_file_loaded()
-    local state = {
-        path = mp.get_property('path'),
-        lens = { intro = 0, outro = 0 },
-        edited = false,
-        windows = {},
-        auto_skipped_this_file = {},
-    }
-    current = state
-    recompute(state)
+local deps = { skipinfo = skipinfo, facts = media_facts, log = msg }
 
-    api.get_skip_time(state.path, function(resp, err)
-        if current ~= state or state.edited then return end
-        if err or not resp or resp.code ~= 0 then
-            msg.error("获取服务器片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
-            return
-        end
-        state.lens = skip_window.from_server(resp.data)
-        recompute(state)
-        msg.info(string.format("服务器片头/片尾时长: 片头 %s 秒, 片尾 %s 秒", state.lens.intro, state.lens.outro))
-    end)
+local function on_file_loaded()
+    if current then current:close() end
+    current = skip_session.open(mp.get_property('path'), deps)
 end
 
 local function on_end_file()
+    if current then current:close() end
     current = nil
 end
 
 local function on_time_pos(_, pos)
-    local state = current
-    if not pos or not state or not opts.enabled then return end
-    for _, kind in ipairs({ 'intro', 'outro' }) do
-        local w = state.windows[kind]
-        if w and not state.auto_skipped_this_file[kind] then
-            state.auto_skipped_this_file[kind] = mutils.skip_if_in(pos, w[1], w[2], LABELS[kind])
-            if state.auto_skipped_this_file[kind] then
-                msg.info(string.format("跳过%s, mode=%s args:%s", kind, tostring(opts.detect_mode), utils.to_string(w)))
-            end
-        end
-    end
+    if not pos or not current or not opts.enabled then return end
+    local kind, target = current:tick(pos)
+    if not kind then return end
+    mutils.show_message(LABELS[kind], 2)
+    mp.set_property_number('time-pos', target)
+    msg.info(string.format("跳过%s 到 %s 秒, mode=%s", kind, tostring(target), tostring(opts.detect_mode)))
 end
 
 local function on_media_changed()
-    if current then recompute(current) end
+    if current then current:media_changed() end
 end
 
 local function manual_skip_forward()
@@ -105,30 +84,21 @@ local function manual_skip_forward()
     mutils.show_message(string.format('⏩ 快速跳过 %d 秒', duration), 2)
 end
 
-local function adopt_user_lens(lens, reason)
-    if not lens then return false, reason end
-    if not current then return false, "没有正在播放的文件" end
-    current.lens = lens
-    current.edited = true
-    recompute(current)
-    api.set_skip_time(current.path, lens.intro, lens.outro)
-    return true
-end
-
-local function current_lens()
-    return current and current.lens or { intro = 0, outro = 0 }
-end
-
 local session = {
-    lens = current_lens,
+    lens = function()
+        return current and current:lens() or { intro = 0, outro = 0 }
+    end,
     edit = function(kind, len)
-        return adopt_user_lens(skip_window.edit(current_lens(), mutils.dur(), kind, len))
+        if not current then return false, NO_FILE end
+        return current:edit(kind, len)
     end,
     edit_at = function(kind, pos)
-        return adopt_user_lens(skip_window.edit_at(current_lens(), mutils.dur(), kind, pos))
+        if not current then return false, NO_FILE end
+        return current:edit_at(kind, pos)
     end,
     clear = function()
-        return adopt_user_lens({ intro = 0, outro = 0 })
+        if not current then return false, NO_FILE end
+        return current:clear()
     end,
     refresh = on_media_changed,
 }
