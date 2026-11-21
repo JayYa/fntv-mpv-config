@@ -24,3 +24,4 @@ python -m unittest tests.test_build              # 单个模块，从仓库根�
 - `test_package_archive.py`：直接拿临时的 portable_config 目录测 `build_package_archive`，不用搭依赖配置。
 - `test_contract_test.py`：契约测试用从仓库 `package_cfg.json` 读出的依赖布局；也测根目录的 `check_archive.py`。
 - `test_skip_window.py`：用 `lupa` 内嵌的 Lua 5.1 加载 `local_packages/smart_skip/skip_window.lua`，不需要装 Lua 或 mpv。
+- `test_skipinfo_requests.py`：同样用 `lupa`，经 `package.preload` 把 `mp`、`mp.utils`、`mp.msg` 换成桩，测 smart_skip 的 `api` 发出的 skipinfo 请求和 `http_async.request` 对 curl 结果的处理；测 `api` 时 `http_async` 也换成桩，不会真的发请求。
