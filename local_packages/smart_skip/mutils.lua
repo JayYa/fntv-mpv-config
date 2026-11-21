@@ -30,6 +30,8 @@ local msg       = require('mp.msg')
 
 local mutils    = {}
 
+local OSD_ALIGN_BOTTOM_LEFT = "{\\an1}"
+
 mutils.SCRIPT   = mp.get_script_name()
 local conf_dir  = mp.command_native({ "expand-path", "~~/script-opts" })
 local conf_path = conf_dir .. "/" .. mutils.SCRIPT .. ".conf"
@@ -41,7 +43,7 @@ function mutils.timepos() return mp.get_property_number('time-pos', 0) or 0 end
 function mutils.show_message(text, duration)
     duration = duration or 3
     local ass = mp.get_property_osd("osd-ass-cc/0")
-    local styled_text = ass .. "{\\an1}" .. text
+    local styled_text = ass .. OSD_ALIGN_BOTTOM_LEFT .. text
     mp.osd_message(styled_text, duration)
 end
 

@@ -30,71 +30,57 @@ local http_async = require('./http_async')
 
 local api = {}
 
-function api.set_skip_time(play_url, start_time, end_time, callback)
+local function skipinfo_target(play_url)
     if not play_url or play_url == "" then
         msg.error("播放地址不能为空")
-        return false
-    end
-
-    if start_time < 0 or end_time < 0 then
-        msg.error("无效的跳过时间点,start:".. start_time .. " end:".. end_time)
-        return false
+        return nil
     end
 
     local id, query = mutils.extract_id_and_query(play_url)
     if not query or not id then
         msg.error("无法解析播放地址的查询参数:" .. tostring(play_url))
-        return false
+        return nil
     end
 
     local origin = mutils.extract_origin(play_url)
     if not origin then
         msg.error("无法解析播放地址的主机和端口:" .. tostring(play_url))
+        return nil
+    end
+
+    return origin, id, query
+end
+
+function api.set_skip_time(play_url, intro, outro, callback)
+    if intro < 0 or outro < 0 then
+        msg.error("无效的片头/片尾时长,片头:" .. intro .. " 片尾:" .. outro)
         return false
     end
 
-    local url = origin .. "/api/v1/skipinfo?" .. query
-    local data = {
-        guid = id,
-        skipStart = start_time,
-        skipEnd = end_time
-    }
+    local origin, id, query = skipinfo_target(play_url)
+    if not origin then return false end
 
     http_async.request({
-        url = url,
+        url = origin .. "/api/v1/skipinfo?" .. query,
         method = "POST",
-        headers = nil,
-        data = data,
+        data = {
+            guid = id,
+            skipStart = intro,
+            skipEnd = outro
+        },
         json = true
     }, callback)
-    
+
     return true
 end
 
 function api.get_skip_time(play_url, callback)
-    if not play_url or play_url == "" then
-        msg.error("播放地址不能为空")
-        return nil
-    end
-
-    local id, query = mutils.extract_id_and_query(play_url)
-    if not query or not id then
-        msg.error("无法解析播放地址的查询参数:".. tostring(play_url))
-        return nil
-    end
-
-    local origin = mutils.extract_origin(play_url)
-    if not origin then
-        msg.error("无法解析播放地址的主机和端口:" .. tostring(play_url))
-        return nil
-    end
-
-    local url = origin .. "/api/v1/skipinfo/".. id .. "?" .. query
+    local origin, id, query = skipinfo_target(play_url)
+    if not origin then return nil end
 
     http_async.request({
-        url = url,
+        url = origin .. "/api/v1/skipinfo/" .. id .. "?" .. query,
         method = "GET",
-        headers = nil,
         json = true
     }, callback)
 
