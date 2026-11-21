@@ -20,7 +20,6 @@ PACKAGE_TIMESTAMP_PATTERN = re.compile(TIMESTAMP_REGEX)
 PACKAGE_ARCHIVE_PREFIX = "mpv-package-"
 PACKAGE_ARCHIVE_NAME = re.compile(re.escape(PACKAGE_ARCHIVE_PREFIX) + TIMESTAMP_REGEX + r"\.zip")
 
-# 构建时间戳一律用北京时间。中国没有夏令时，固定 UTC+8 即可，不依赖 Windows 上缺失的时区库
 BEIJING = timezone(timedelta(hours=8), "Asia/Shanghai")
 
 

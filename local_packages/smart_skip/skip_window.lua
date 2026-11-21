@@ -12,12 +12,6 @@ local function nonneg(v)
     return v
 end
 
--- 服务器 skipinfo 的 data（skipStart = 片头时长，skipEnd = 片尾时长）转成 lens
-function M.from_server(data)
-    if type(data) ~= "table" then return { intro = 0, outro = 0 } end
-    return { intro = nonneg(data.skipStart), outro = nonneg(data.skipEnd) }
-end
-
 local function outro_ok(outro, d) return outro <= d / 2 end
 local function fits(intro, outro, d) return intro + outro <= d end
 

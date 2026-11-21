@@ -36,7 +36,6 @@ local SCRIPT      = mp.get_script_name()
 
 local session     = nil
 
--- ========= 工具 =========
 local function mode_name(m)
     if m == DETECT_MODE.CHAPTER then return '章节模式' end
     if m == DETECT_MODE.MANUAL then return '手动模式' end
@@ -60,7 +59,6 @@ local function length_control(kind, title)
     }
 end
 
--- ========= uosc 菜单渲染 =========
 local function open_uosc_menu(items, title, footnote, menu_type)
     local props = {
         type            = menu_type or 'menu_skip',
@@ -89,7 +87,6 @@ local function open_input(control_id, title, placeholder)
     mp.commandv('script-message-to', 'uosc', 'open-menu', utils.format_json(props))
 end
 
--- ========= 控件注册（声明式） =========
 local Controls = {
     enabled = {
         type  = 'toggle',
@@ -147,11 +144,9 @@ local Controls = {
     },
 }
 
--- ========= 菜单构建（由控件表生成） =========
 local function build_items()
     local items = {}
 
-    -- 顶部状态行
     table.insert(items, {
         title      = string.format('跳过功能：%s', bool_sign(opts.enabled)),
         bold       = true,
@@ -160,7 +155,6 @@ local function build_items()
         selectable = false,
     })
 
-    -- 开关按钮
     table.insert(items, {
         title      = opts.enabled and '关闭' or '开启',
         hint       = Controls.enabled.title,
@@ -169,7 +163,6 @@ local function build_items()
         selectable = true,
     })
 
-    -- 模式选择
     table.insert(items, { title = '— 模式选择 —', keep_open = true, selectable = false })
     local dm = Controls.detect_mode
     for _, opt in ipairs(dm.options) do
@@ -182,7 +175,6 @@ local function build_items()
         })
     end
 
-    -- 快捷时长
     table.insert(items,
         { title = '— 快捷键快速跳过时长（秒） —', keep_open = true, selectable = false, hint = '默认快捷键: Backspace' })
 
@@ -194,7 +186,6 @@ local function build_items()
         selectable = true,
     })
 
-    -- 手动时间
     table.insert(items, { title = '— 手动设置片头片尾时间 —', keep_open = true, selectable = false })
 
     table.insert(items, {
@@ -228,7 +219,6 @@ local function open_main_menu()
     open_uosc_menu(build_items(), '跳过片头片尾设置', '提示：回车提交；Esc 返回', 'menu_skip')
 end
 
--- ========= 统一事件处理 =========
 local function on_action(op, id, value)
     if not op then return end
 

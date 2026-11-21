@@ -23,9 +23,7 @@ DEFAULTS_CONF = "fntv/defaults.conf"
 ROLES = ("managed", "config", "seed")
 ROLES_KEPT_BY_CLIENT = ("config", "seed")
 
-# 归档提供给客户端的能力：能力名 -> 版本
 PROVIDES = {
-    # smart_skip 从播放地址取 Proxy 的 scheme、主机和端口（a5e1137 起）
     "smart-skip.origin-from-play-url": 1,
 }
 

@@ -1,6 +1,10 @@
 # Coding standards
 
-Apply every rule to the diff. CI already runs `ruff check .` and the tests, so these are the judgement calls only.
+Apply every rule to the diff. CI already runs `ruff check .`, `python check_comments.py` and the tests, so these are the judgement calls only.
+
+## No comments
+
+- Project-owned Python and Lua carry no comments; `check_comments.py` enforces this with a ratchet against `comment-baseline.json`. Name the thing instead of explaining it. A non-obvious decision goes into `docs/adr/`; a hack that needs a comment to excuse it gets an issue, not a comment. `/delete-comment` sweeps the comments that remain.
 
 ## Docs match the code
 
