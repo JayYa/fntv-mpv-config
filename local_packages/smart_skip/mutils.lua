@@ -53,15 +53,6 @@ function mutils.get_chapter_list()
     return chapters
 end
 
-function mutils.skip_if_in(curr_pos, a, b, why)
-    if curr_pos >= a and curr_pos <= b then
-        mutils.show_message(why, 2)
-        mp.set_property_number('time-pos', b)
-        return true
-    end
-    return false
-end
-
 local function ensure_dir(dir)
     if utils.file_info(dir) then return end
     local args
