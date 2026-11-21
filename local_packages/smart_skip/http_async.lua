@@ -85,37 +85,13 @@ function http_async.request(opts, callback)
             return
         end
 
-        local stdout = result.stdout or ""
-
-        if opts and opts.expect_json ~= false then
-            local obj, jerr = decode_json(stdout)
-            if not obj then
-                callback(nil, "json decode failed: " .. tostring(jerr))
-                return
-            end
-            callback(obj, nil)
-        else
-            callback(stdout, nil)
+        local obj, jerr = decode_json(result.stdout or "")
+        if not obj then
+            callback(nil, "json decode failed: " .. tostring(jerr))
+            return
         end
+        callback(obj, nil)
     end)
-end
-
-function http_async.get(url, headers, callback)
-    http_async.request({
-        url = url,
-        method = "GET",
-        headers = headers
-    }, callback)
-end
-
-function http_async.post(url, headers, data, json, callback)
-    http_async.request({
-        url = url,
-        method = "POST",
-        headers = headers,
-        data = data,
-        json = json
-    }, callback)
 end
 
 return http_async

@@ -63,7 +63,6 @@ function api.set_skip_time(play_url, start_time, end_time, callback)
     http_async.request({
         url = url,
         method = "POST",
-        headers = nil,
         data = data,
         json = true
     }, callback)
@@ -94,7 +93,6 @@ function api.get_skip_time(play_url, callback)
     http_async.request({
         url = url,
         method = "GET",
-        headers = nil,
         json = true
     }, callback)
 
