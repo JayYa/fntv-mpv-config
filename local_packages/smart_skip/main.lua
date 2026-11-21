@@ -29,7 +29,7 @@ local msg = require('mp.msg')
 local opt = require('mp.options')
 local utils = require('mp.utils')
 local mutils = require('./mutils')
-local api = require('./api')
+local skipinfo = require('./skipinfo')
 local options = require('./options')
 local skip_window = require('./skip_window')
 local menu = require('./menu')
@@ -60,13 +60,13 @@ local function on_file_loaded()
     current = state
     recompute(state)
 
-    api.get_skip_time(state.path, function(resp, err)
+    skipinfo.fetch(state.path, function(lens, err)
         if current ~= state or state.edited then return end
-        if err or not resp or resp.code ~= 0 then
-            msg.error("获取服务器片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
+        if not lens then
+            msg.error("获取服务器片头/片尾时长失败: " .. err)
             return
         end
-        state.lens = skip_window.from_server(resp.data)
+        state.lens = lens
         recompute(state)
         msg.info(string.format("服务器片头/片尾时长: 片头 %s 秒, 片尾 %s 秒", state.lens.intro, state.lens.outro))
     end)
@@ -111,9 +111,9 @@ local function adopt_user_lens(lens, reason)
     current.lens = lens
     current.edited = true
     recompute(current)
-    api.set_skip_time(current.path, lens.intro, lens.outro, function(resp, err)
-        if err or not resp or resp.code ~= 0 then
-            msg.error("保存片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
+    skipinfo.save(current.path, lens, function(ok, err)
+        if not ok then
+            msg.error("保存片头/片尾时长失败: " .. err)
         end
     end)
     return true

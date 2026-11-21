@@ -41,21 +41,16 @@ class SkipWindowTestCase(unittest.TestCase):
         }))
         return self.to_py(result) or {}
 
-    def lens_from_server(self, data):
-        return self.to_py(self.sw.from_server(self.table(data) if data is not None else None))
-
 
 class TestManualWindows(SkipWindowTestCase):
-    def test_server_lengths_become_intro_and_outro_windows(self):
-        lens = self.lens_from_server({"skipStart": 90, "skipEnd": 120})
+    def test_intro_and_outro_lengths_become_windows(self):
         self.assertEqual(
-            self.windows(1440, lens),
+            self.windows(1440, {"intro": 90, "outro": 120}),
             {"intro": [0, 90], "outro": [1320, 1440]},
         )
 
     def test_outro_longer_than_half_the_video_is_dropped(self):
-        lens = self.lens_from_server({"skipStart": 90, "skipEnd": 800})
-        self.assertEqual(self.windows(1440, lens), {"intro": [0, 90]})
+        self.assertEqual(self.windows(1440, {"intro": 90, "outro": 800}), {"intro": [0, 90]})
 
     def test_intro_overlapping_the_outro_is_dropped(self):
         self.assertEqual(
@@ -63,14 +58,11 @@ class TestManualWindows(SkipWindowTestCase):
             {"outro": [350, 600]},
         )
 
-    def test_missing_or_broken_server_data_gives_no_window(self):
-        for data in (None, {}, {"skipStart": -5, "skipEnd": "abc"}):
-            with self.subTest(data=data):
-                self.assertEqual(self.windows(1440, self.lens_from_server(data)), {})
+    def test_zero_lengths_give_no_window(self):
+        self.assertEqual(self.windows(1440, {"intro": 0, "outro": 0}), {})
 
     def test_no_window_until_duration_is_known(self):
-        lens = self.lens_from_server({"skipStart": 90, "skipEnd": 120})
-        self.assertEqual(self.windows(0, lens), {})
+        self.assertEqual(self.windows(0, {"intro": 90, "outro": 120}), {})
 
 
 EPISODE = 1440

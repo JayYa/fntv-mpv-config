@@ -10,7 +10,7 @@ PLAY_URL = "http://127.0.0.1:1999/v/api/v1/playvideo/abc123?token=xyz"
 MPV_STUBS = """
 local dir = ...
 package.path = dir .. '/?.lua;' .. package.path
-calls = { requests = {}, subprocess = {}, errors = {} }
+calls = { requests = {}, subprocess = {} }
 package.preload['mp'] = function() return {
     get_script_name = function() return 'smart_skip' end,
     command_native = function() return '/mpv/script-opts' end,
@@ -26,7 +26,7 @@ package.preload['mp.utils'] = function() return {
     format_json = function(t) return 'encoded-json' end,
 } end
 package.preload['mp.msg'] = function() return {
-    error = function(m) table.insert(calls.errors, m) end,
+    error = function() end,
     info = function() end,
 } end
 """
@@ -58,62 +58,103 @@ class SmartSkipLuaTestCase(unittest.TestCase):
         return {k: self.to_py(v) for k, v in items.items()}
 
 
-class TestSkipinfoApi(SmartSkipLuaTestCase):
+class TestSkipinfo(SmartSkipLuaTestCase):
     def setUp(self):
         super().setUp()
         self.lua.execute(HTTP_ASYNC_STUB)
-        self.api = self.lua.require("api")
+        self.skipinfo = self.lua.require("skipinfo")
+        self.results = []
+
+    def record(self, *result):
+        self.results.append(tuple(self.to_py(value) for value in result))
+
+    def fetch(self, url=PLAY_URL):
+        self.skipinfo.fetch(url, self.record)
+
+    def save(self, lens, url=PLAY_URL):
+        self.skipinfo.save(url, self.table(lens), self.record)
 
     def only_request(self):
         requests = self.to_py(self.calls.requests) or []
         self.assertEqual(len(requests), 1)
         return requests[0]
 
+    def respond(self, resp=None, err=None):
+        self.only_request()["cb"](self.table(resp) if resp is not None else None, err)
+
+    def only_result(self):
+        self.assertEqual(len(self.results), 1)
+        return self.results[0]
+
     def assertNoRequest(self):
         self.assertFalse(self.to_py(self.calls.requests))
 
     def assertPlayUrlRejected(self, url, message):
-        self.assertFalse(self.api.set_skip_time(url, 90, 120))
-        self.assertIsNone(self.api.get_skip_time(url))
+        self.fetch(url)
+        self.save({"intro": 90, "outro": 120}, url)
         self.assertNoRequest()
-        self.assertEqual(self.to_py(self.calls.errors), [message, message])
+        self.assertEqual(self.results, [(None, message), (False, message)])
 
     def test_saving_intro_and_outro_length_posts_skipinfo_to_play_url_origin(self):
-        def callback(resp, err):
-            pass
-
-        self.assertTrue(self.api.set_skip_time(PLAY_URL, 90, 120, callback))
-        request = self.only_request()
-        self.assertEqual(request["opts"], {
+        self.save({"intro": 90, "outro": 120})
+        self.assertEqual(self.only_request()["opts"], {
             "url": "http://127.0.0.1:1999/api/v1/skipinfo?token=xyz",
             "method": "POST",
             "data": {"guid": "abc123", "skipStart": 90, "skipEnd": 120},
             "json": True,
         })
-        self.assertIs(request["cb"], callback)
 
     def test_reading_intro_and_outro_length_gets_skipinfo_of_play_id_from_play_url_origin(self):
-        def callback(resp, err):
-            pass
-
-        self.assertTrue(self.api.get_skip_time(PLAY_URL, callback))
-        request = self.only_request()
-        self.assertEqual(request["opts"], {
+        self.fetch()
+        self.assertEqual(self.only_request()["opts"], {
             "url": "http://127.0.0.1:1999/api/v1/skipinfo/abc123?token=xyz",
             "method": "GET",
             "json": True,
         })
-        self.assertIs(request["cb"], callback)
+
+    def test_server_skip_start_and_end_are_read_as_intro_and_outro_length(self):
+        self.fetch()
+        self.respond({"code": 0, "data": {"skipStart": 90, "skipEnd": 120}})
+        self.assertEqual(self.only_result(), ({"intro": 90, "outro": 120}, None))
+
+    def test_missing_or_broken_server_lengths_are_read_as_zero(self):
+        for data in (None, {}, {"skipStart": -5, "skipEnd": "abc"}):
+            with self.subTest(data=data):
+                self.calls.requests = self.lua.table()
+                self.results = []
+                self.fetch()
+                self.respond({"code": 0, "data": data})
+                self.assertEqual(self.only_result(), ({"intro": 0, "outro": 0}, None))
+
+    def test_server_error_code_fails_the_read(self):
+        self.fetch()
+        self.respond({"code": 404})
+        self.assertEqual(self.only_result(), (None, "服务器返回错误码 404"))
+
+    def test_request_error_fails_the_read(self):
+        self.fetch()
+        self.respond(err="curl exit=7 stderr=refused")
+        self.assertEqual(self.only_result(), (None, "curl exit=7 stderr=refused"))
+
+    def test_accepted_save_succeeds(self):
+        self.save({"intro": 90, "outro": 120})
+        self.respond({"code": 0})
+        self.assertEqual(self.only_result(), (True, None))
+
+    def test_server_error_code_fails_the_save(self):
+        self.save({"intro": 90, "outro": 120})
+        self.respond({"code": 500})
+        self.assertEqual(self.only_result(), (False, "服务器返回错误码 500"))
 
     def test_negative_intro_length_is_not_saved(self):
-        self.assertFalse(self.api.set_skip_time(PLAY_URL, -1, 120))
+        self.save({"intro": -1, "outro": 120})
         self.assertNoRequest()
-        self.assertEqual(self.to_py(self.calls.errors), ["无效的片头/片尾时长,片头:-1 片尾:120"])
+        self.assertEqual(self.results, [(False, "无效的片头/片尾时长,片头:-1 片尾:120")])
 
     def test_negative_outro_length_is_not_saved(self):
-        self.assertFalse(self.api.set_skip_time(PLAY_URL, 90, -1))
+        self.save({"intro": 90, "outro": -1})
         self.assertNoRequest()
-        self.assertEqual(self.to_py(self.calls.errors), ["无效的片头/片尾时长,片头:90 片尾:-1"])
+        self.assertEqual(self.results, [(False, "无效的片头/片尾时长,片头:90 片尾:-1")])
 
     def test_empty_play_url_is_rejected(self):
         self.assertPlayUrlRejected("", "播放地址不能为空")

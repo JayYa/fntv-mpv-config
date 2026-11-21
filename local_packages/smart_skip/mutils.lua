@@ -62,17 +62,6 @@ function mutils.skip_if_in(curr_pos, a, b, why)
     return false
 end
 
-function mutils.extract_id_and_query(url)
-    local id = url:match("/playvideo/([^%?]+)")
-    local query = url:match("%?(.*)")
-
-    return id, query
-end
-
-function mutils.extract_origin(url)
-    return url:match("^(https?://[^/%?#]+)")
-end
-
 local function ensure_dir(dir)
     if utils.file_info(dir) then return end
     local args
