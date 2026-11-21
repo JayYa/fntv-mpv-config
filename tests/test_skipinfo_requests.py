@@ -10,7 +10,7 @@ PLAY_URL = "http://127.0.0.1:1999/v/api/v1/playvideo/abc123?token=xyz"
 MPV_STUBS = """
 local dir = ...
 package.path = dir .. '/?.lua;' .. package.path
-calls = { requests = {}, subprocess = {} }
+calls = { requests = {}, subprocess = {}, errors = {} }
 package.preload['mp'] = function() return {
     get_script_name = function() return 'smart_skip' end,
     command_native = function() return '/mpv/script-opts' end,
@@ -26,7 +26,7 @@ package.preload['mp.utils'] = function() return {
     format_json = function(t) return 'encoded-json' end,
 } end
 package.preload['mp.msg'] = function() return {
-    error = function() end,
+    error = function(m) table.insert(calls.errors, m) end,
     info = function() end,
 } end
 """
@@ -72,7 +72,13 @@ class TestSkipinfoApi(SmartSkipLuaTestCase):
     def assertNoRequest(self):
         self.assertFalse(self.to_py(self.calls.requests))
 
-    def test_saving_lens_posts_intro_and_outro_length_to_play_url_origin(self):
+    def assertPlayUrlRejected(self, url, message):
+        self.assertFalse(self.api.set_skip_time(url, 90, 120))
+        self.assertIsNone(self.api.get_skip_time(url))
+        self.assertNoRequest()
+        self.assertEqual(self.to_py(self.calls.errors), [message, message])
+
+    def test_saving_intro_and_outro_length_posts_skipinfo_to_play_url_origin(self):
         def callback(resp, err):
             pass
 
@@ -86,7 +92,7 @@ class TestSkipinfoApi(SmartSkipLuaTestCase):
         })
         self.assertIs(request["cb"], callback)
 
-    def test_reading_lens_gets_skipinfo_of_play_id_from_play_url_origin(self):
+    def test_reading_intro_and_outro_length_gets_skipinfo_of_play_id_from_play_url_origin(self):
         def callback(resp, err):
             pass
 
@@ -99,24 +105,30 @@ class TestSkipinfoApi(SmartSkipLuaTestCase):
         })
         self.assertIs(request["cb"], callback)
 
-    def test_negative_length_is_not_saved(self):
-        for intro, outro in ((-1, 120), (90, -1)):
-            with self.subTest(intro=intro, outro=outro):
-                self.assertFalse(self.api.set_skip_time(PLAY_URL, intro, outro))
+    def test_negative_intro_length_is_not_saved(self):
+        self.assertFalse(self.api.set_skip_time(PLAY_URL, -1, 120))
         self.assertNoRequest()
+        self.assertEqual(self.to_py(self.calls.errors), ["无效的片头/片尾时长,片头:-1 片尾:120"])
 
-    def test_unusable_play_url_sends_no_request(self):
-        cases = {
-            "空地址": "",
-            "没有 playvideo id": "http://127.0.0.1:1999/v/api/v1/other?token=xyz",
-            "没有查询参数": "http://127.0.0.1:1999/v/api/v1/playvideo/abc123",
-            "没有 origin": "/v/api/v1/playvideo/abc123?token=xyz",
-        }
-        for problem, url in cases.items():
-            with self.subTest(problem):
-                self.assertFalse(self.api.set_skip_time(url, 90, 120))
-                self.assertIsNone(self.api.get_skip_time(url))
+    def test_negative_outro_length_is_not_saved(self):
+        self.assertFalse(self.api.set_skip_time(PLAY_URL, 90, -1))
         self.assertNoRequest()
+        self.assertEqual(self.to_py(self.calls.errors), ["无效的片头/片尾时长,片头:90 片尾:-1"])
+
+    def test_empty_play_url_is_rejected(self):
+        self.assertPlayUrlRejected("", "播放地址不能为空")
+
+    def test_play_url_without_play_id_is_rejected(self):
+        url = "http://127.0.0.1:1999/v/api/v1/other?token=xyz"
+        self.assertPlayUrlRejected(url, "无法解析播放地址的查询参数:" + url)
+
+    def test_play_url_without_query_is_rejected(self):
+        url = "http://127.0.0.1:1999/v/api/v1/playvideo/abc123"
+        self.assertPlayUrlRejected(url, "无法解析播放地址的查询参数:" + url)
+
+    def test_play_url_without_origin_is_rejected(self):
+        url = "/v/api/v1/playvideo/abc123?token=xyz"
+        self.assertPlayUrlRejected(url, "无法解析播放地址的主机和端口:" + url)
 
 
 class TestHttpAsyncRequest(SmartSkipLuaTestCase):
