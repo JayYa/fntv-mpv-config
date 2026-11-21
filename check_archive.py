@@ -11,12 +11,10 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from src.contract_test import contract_test  # noqa: E402
-from src.manifest import ManifestError  # noqa: E402
-from src.package_config import ConfigError, load_package_config  # noqa: E402
-from src.previous_manifest import PreviousManifestError, PreviousManifestFile, load_known_hashes  # noqa: E402
+from src.contract_test import contract_test
+from src.manifest import ManifestError
+from src.package_config import ConfigError, load_package_config
+from src.previous_manifest import PreviousManifestError, PreviousManifestFile, load_known_hashes
 
 DEFAULT_CONFIG = Path(__file__).parent / "package_cfg.json"
 
