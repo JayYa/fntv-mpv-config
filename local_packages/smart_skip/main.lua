@@ -111,7 +111,11 @@ local function adopt_user_lens(lens, reason)
     current.lens = lens
     current.edited = true
     recompute(current)
-    api.set_skip_time(current.path, lens.intro, lens.outro)
+    api.set_skip_time(current.path, lens.intro, lens.outro, function(resp, err)
+        if err or not resp or resp.code ~= 0 then
+            msg.error("保存片头/片尾时长失败: " .. tostring(err or (resp and resp.code)))
+        end
+    end)
     return true
 end
 
