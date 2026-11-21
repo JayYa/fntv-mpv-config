@@ -33,8 +33,6 @@ def _extract_tar(archive_path: Path, extract_to: Path):
 
 def _extract_7z(archive_path: Path, extract_to: Path):
     try:
-        # 传文件对象而不是路径：传路径时 py7zr 并行解压，会按文件名另开一个不关闭的句柄，
-        # 解压报错（如 BCJ2）后它要等 GC 才释放，Windows 上 temp 就删不掉
         with open(archive_path, 'rb') as f, py7zr.SevenZipFile(f, mode='r') as z:
             z.extractall(extract_to)
     except Exception as e:

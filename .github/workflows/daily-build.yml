@@ -1,9 +1,7 @@
 name: Daily MPV Package Build
 
 on:
-  # 允许手动触发
   workflow_dispatch:
-  # 推送到release分支时也触发
   push:
     branches: [ release ]
 
@@ -11,11 +9,10 @@ jobs:
   build:
     runs-on: windows-latest
 
-    # 为GITHUB_TOKEN添加必要权限
     permissions:
-      contents: write        # 需要写入权限来创建release
-      actions: read         # 读取actions权限
-      checks: read          # 读取checks权限
+      contents: write
+      actions: read
+      checks: read
 
     steps:
     - name: Checkout repository
@@ -28,9 +25,7 @@ jobs:
 
     - name: Install 7-Zip
       run: |
-        # 安装7-Zip
         choco install 7zip -y
-        # 验证安装
         7z --help
 
     - name: Install dependencies
@@ -52,7 +47,6 @@ jobs:
         echo "RESULT=$json" >> $env:GITHUB_OUTPUT
       shell: pwsh
       env:
-        # 设置UTF-8编码以支持中文日志
         PYTHONIOENCODING: utf-8
         PYTHONLEGACYWINDOWSSTDIO: utf-8
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,15 +29,13 @@ local skip_window = require('./skip_window')
 local DETECT_MODE = skip_window.MODE
 
 local opts = {
-    -- 基础设置
     enabled = false,
     detect_mode = DETECT_MODE.AUTO,
 
-    -- 章节检测参数
-    min_skip_duration = 10,  -- 最短片头/片尾长度s
-    max_skip_duration = 150, -- 最长片头/片尾长度s
-    max_scan_window = 600,   -- 最大扫描窗口（10分钟）
-    max_scan_percent = 15,   -- 视频长度百分比
+    min_skip_duration = 10,
+    max_skip_duration = 150,
+    max_scan_window = 600,
+    max_scan_percent = 15,
 
     manual_skip_duration = 90,
 }

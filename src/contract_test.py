@@ -15,14 +15,6 @@ from .manifest import (
     sha256_bytes,
 )
 
-# mpv.conf 分层：默认值在托管的 fntv/defaults.conf 的 [fntv-defaults] 段里，
-# 薄 mpv.conf 的前两个有效行是 include 它和 profile=fntv-defaults，用户设置写在后面。
-#
-# 为什么要 profile 段（附带 MPV 55d3feb45 实测，见 options/parse_configfile.c 和
-# m_config_frontend.c）：配置文件顶层的选项先存进 default profile，读完整个文件才按顺序应用；
-# include 在应用时才读入目标文件，目标文件的顶层选项追加到 default profile 末尾，
-# 于是排在外层文件所有行之后，默认值反而覆盖用户设置。放进命名段再用 profile= 立即应用，
-# 默认值就在 include 行的位置生效，后面的用户设置覆盖它。
 DEFAULTS_PROFILE = "fntv-defaults"
 INCLUDE_LINE = 'include="~~/fntv/defaults.conf"'
 

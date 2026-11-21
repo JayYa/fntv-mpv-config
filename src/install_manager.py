@@ -22,7 +22,6 @@ class InstallManager:
         self.project_dir = Path(project_dir)
         self.logger = logging.getLogger(__name__)
         self.portable_config_dir = self.project_dir / PORTABLE_CONFIG
-        # 按 casefold 后的安装包内路径记，Windows 上只差大小写的路径是同一个文件
         self._installed: Dict[str, _Installed] = {}
 
     def reset_project_dir(self):
