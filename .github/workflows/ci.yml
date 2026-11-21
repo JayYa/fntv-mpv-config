@@ -23,6 +23,9 @@ jobs:
     - name: Lint
       run: ruff check .
 
+    - name: No new comments
+      run: python check_comments.py
+
     - name: Run tests
       run: python run_tests.py
       env:
