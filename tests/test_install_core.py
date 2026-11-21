@@ -23,20 +23,17 @@ class TestInstallManagerCore(unittest.TestCase):
         self.temp_dir = tempfile.mkdtemp()
         self.test_dir = Path(self.temp_dir)
         
-        # 创建源文件结构
         self.source_dir = self.test_dir / "source"
         self.source_dir.mkdir()
         (self.source_dir / "main.lua").write_text("-- Main script")
         (self.source_dir / "config.json").write_text('{"key": "value"}')
         (self.source_dir / "README.md").write_text("# Documentation")
         
-        # 创建子目录
         scripts_dir = self.source_dir / "scripts"
         scripts_dir.mkdir()
         (scripts_dir / "helper.lua").write_text("-- Helper script")
         (scripts_dir / "data.txt").write_text("test data")
         
-        # 创建安装管理器
         self.install_manager = InstallManager(self.test_dir / "output" / "test-config")
 
     def tearDown(self):
@@ -63,16 +60,13 @@ class TestInstallManagerCore(unittest.TestCase):
 
         target_dir = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
-        # 验证包含的文件
         self.assertTrue((target_dir / "main.lua").exists())
         self.assertTrue((target_dir / "config.json").exists())
         self.assertTrue((target_dir / "scripts" / "helper.lua").exists())
         self.assertTrue((target_dir / "scripts" / "data.txt").exists())
         
-        # 验证排除的文件
         self.assertFalse((target_dir / "README.md").exists())
         
-        # 验证文件内容
         content = (target_dir / "main.lua").read_text()
         self.assertEqual(content, "-- Main script")
 
@@ -90,19 +84,15 @@ class TestInstallManagerCore(unittest.TestCase):
         self.install({"custom_install_rules": [{
             "from": "scripts",
             "to": "portable_config/scripts/test_plugin",
-            "filter": ["**/*.lua"]  # 只复制lua文件
+            "filter": ["**/*.lua"]
         }]})
 
-        # 验证文件安装到正确位置
         target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
-        # 验证lua文件已复制
         self.assertTrue((target_path / "helper.lua").exists())
         
-        # 验证非lua文件被过滤
         self.assertFalse((target_path / "data.txt").exists())
         
-        # 验证文件内容
         content = (target_path / "helper.lua").read_text()
         self.assertEqual(content, "-- Helper script")
     
@@ -111,20 +101,16 @@ class TestInstallManagerCore(unittest.TestCase):
         self.install({"custom_install_rules": [{
             "from": ".",
             "to": "portable_config/scripts/test_plugin",
-            "filter": ["**/*.lua", "**/*.json"]  # 复制lua和json文件
+            "filter": ["**/*.lua", "**/*.json"]
         }]})
 
-        # 验证文件安装到正确位置
         target_path = self.install_manager.project_dir / "portable_config" / "scripts" / "test_plugin"
         
-        # 验证根目录文件
         self.assertTrue((target_path / "main.lua").exists())
         self.assertTrue((target_path / "config.json").exists())
         
-        # 验证子目录文件
         self.assertTrue((target_path / "scripts" / "helper.lua").exists())
         
-        # 验证过滤生效
         self.assertFalse((target_path / "README.md").exists())
         self.assertFalse((target_path / "scripts" / "data.txt").exists())
 
@@ -267,5 +253,4 @@ class TestRepositoryCustomConfig(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    # 运行测试
     unittest.main(verbosity=2)

@@ -94,7 +94,6 @@ local function on_media_changed()
     if current then recompute(current) end
 end
 
--- 手动快捷跳过
 local function manual_skip_forward()
     local duration = tonumber(opts.manual_skip_duration) or 0
     if duration <= 0 then

@@ -30,7 +30,6 @@ local http_async = require('./http_async')
 
 local api = {}
 
--- 设置跳过时间点
 function api.set_skip_time(play_url, start_time, end_time, callback)
     if not play_url or play_url == "" then
         msg.error("播放地址不能为空")
@@ -42,7 +41,6 @@ function api.set_skip_time(play_url, start_time, end_time, callback)
         return false
     end
 
-    -- 获取query参数
     local id, query = mutils.extract_id_and_query(play_url)
     if not query or not id then
         msg.error("无法解析播放地址的查询参数:" .. tostring(play_url))
@@ -79,7 +77,6 @@ function api.get_skip_time(play_url, callback)
         return nil
     end
 
-    -- 获取query参数
     local id, query = mutils.extract_id_and_query(play_url)
     if not query or not id then
         msg.error("无法解析播放地址的查询参数:".. tostring(play_url))
