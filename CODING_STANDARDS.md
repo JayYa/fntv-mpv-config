@@ -4,7 +4,7 @@ Apply every rule to the diff. CI already runs `ruff check .`, `python check_comm
 
 ## No comments
 
-- Project-owned Python and Lua carry no comments; `check_comments.py` enforces this with a ratchet against `comment-baseline.json`. Name the thing instead of explaining it. A non-obvious decision goes into `docs/adr/`; a hack that needs a comment to excuse it gets an issue, not a comment. `/delete-comment` sweeps the comments that remain.
+- Project-owned Python and Lua carry no comments; `check_comments.py` enforces this. Name the thing instead of explaining it. A non-obvious decision goes into `docs/adr/`; a hack that needs a comment to excuse it gets an issue, not a comment.
 
 ## Docs match the code
 
